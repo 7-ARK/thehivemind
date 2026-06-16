@@ -4,7 +4,7 @@
 
 :root {
   color-scheme: dark;
-  background: #080b12;
+  background: #171717;
 }
 
 * {
@@ -14,10 +14,14 @@
 body {
   margin: 0;
   background:
-    radial-gradient(circle at 18% 8%, rgba(240, 180, 41, 0.08), transparent 28%),
-    radial-gradient(circle at 82% 4%, rgba(53, 194, 161, 0.08), transparent 26%),
-    #080b12;
-  color: #e5edf8;
+    linear-gradient(180deg, rgba(213, 162, 83, 0.035), transparent 260px),
+    #171717;
+  color: #f3efe7;
+  font-feature-settings:
+    "cv02",
+    "cv03",
+    "cv04",
+    "cv11";
 }
 
 button,
@@ -25,14 +29,30 @@ textarea {
   font: inherit;
 }
 
+button {
+  cursor: pointer;
+}
+
 ::selection {
-  background: rgba(240, 180, 41, 0.28);
+  background: rgba(213, 162, 83, 0.28);
 }
 
 .panel {
-  @apply border border-hive-border bg-hive-panel shadow-panel;
+  @apply rounded-xl border border-hive-border bg-hive-panel shadow-panel shadow-inset;
+}
+
+.surface {
+  @apply rounded-lg border border-hive-border bg-hive-panelSoft shadow-inset;
+}
+
+.metric-card {
+  @apply rounded-lg border border-hive-border bg-hive-card shadow-inset;
 }
 
 .status-dot {
-  @apply h-2.5 w-2.5 rounded-full bg-hive-teal shadow-[0_0_18px_rgba(53,194,161,0.65)];
+  @apply h-2 w-2 rounded-full bg-hive-green;
+}
+
+.fine-label {
+  @apply text-[11px] font-semibold uppercase tracking-[0.08em] text-hive-faint;
 }

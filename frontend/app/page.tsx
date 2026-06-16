@@ -8,6 +8,7 @@ import { MetricsPanel } from "@/components/MetricsPanel";
 import { Navbar } from "@/components/Navbar";
 import { OutputPanel } from "@/components/OutputPanel";
 import { RunTimeline } from "@/components/RunTimeline";
+import { Sidebar } from "@/components/Sidebar";
 import { TaskGraph } from "@/components/TaskGraph";
 import { AgentInfo, MemorySummary, RunRecord, getAgents, getMemorySummary, startRun } from "@/lib/api";
 
@@ -33,15 +34,18 @@ export default function Home() {
   const [memory, setMemory] = useState<MemorySummary>();
   const [isRunning, setIsRunning] = useState(false);
   const [error, setError] = useState<string>();
+  const [backendOnline, setBackendOnline] = useState(true);
 
   useEffect(() => {
     Promise.all([getAgents(), getMemorySummary()])
       .then(([agentData, memoryData]) => {
         setAgents(agentData);
         setMemory(memoryData);
+        setBackendOnline(true);
       })
       .catch(() => {
-        setError("Backend is not reachable yet. Start FastAPI on port 8000, then refresh.");
+        setBackendOnline(false);
+        setError("Backend offline. Start FastAPI to run live mock orchestration.");
       });
   }, []);
 
@@ -53,8 +57,10 @@ export default function Home() {
       setRun(result);
       setAgents(result.agents);
       setMemory(result.memory);
+      setBackendOnline(true);
     } catch {
-      setError("Run failed. Confirm the backend is running at http://127.0.0.1:8000.");
+      setBackendOnline(false);
+      setError("Backend offline. Start FastAPI to run live mock orchestration.");
     } finally {
       setIsRunning(false);
     }
@@ -62,27 +68,41 @@ export default function Home() {
 
   const ceoModel = useMemo(() => run?.agents.find((agent) => agent.name === "CEO Agent")?.assigned_model ?? "gpt-5.5", [run]);
   const workerModel = useMemo(() => run?.agents.find((agent) => agent.name === "Coding Agent")?.assigned_model ?? "gpt-5.4-nano", [run]);
+  const runTitle = run?.command ?? "New orchestration run";
 
   return (
-    <>
-      <Navbar ceoModel={ceoModel} workerModel={workerModel} />
-      <main className="mx-auto grid max-w-7xl gap-5 px-5 py-6">
-        {error ? (
-          <div className="rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-100">{error}</div>
-        ) : null}
-        <div className="grid gap-5 xl:grid-cols-[1.05fr_0.95fr]">
-          <ChatCommandPanel onRun={handleRun} isRunning={isRunning} submittedCommand={run?.command} />
-          <MetricsPanel run={run} />
-        </div>
-        <TaskGraph graph={run?.task_graph} />
-        <div className="grid gap-5 xl:grid-cols-[0.95fr_1.05fr]">
-          <RunTimeline events={run?.events ?? []} />
-          <MemoryPanel memory={memory} />
-        </div>
-        <AgentWorkspace agents={agents} />
-        <OutputPanel run={run} />
-      </main>
-    </>
+    <div className="min-h-screen bg-hive-bg">
+      <Sidebar backendOnline={backendOnline} />
+      <div className="lg:pl-64">
+        <Navbar ceoModel={ceoModel} workerModel={workerModel} backendOnline={backendOnline} runTitle={runTitle} />
+        <main className="grid gap-5 px-4 py-5 sm:px-5 lg:px-8">
+          {error ? (
+            <div className="rounded-xl border border-hive-warning/45 bg-hive-warning/10 px-4 py-3 text-sm text-[#f0d7b8]">
+              <div className="font-medium">Backend offline</div>
+              <p className="mt-1 text-xs leading-5 text-hive-muted">
+                {error} Expected backend URL: <span className="text-hive-text">http://127.0.0.1:8000</span>
+              </p>
+            </div>
+          ) : null}
+          <div className="grid gap-5 2xl:grid-cols-[0.95fr_1.05fr]">
+            <ChatCommandPanel onRun={handleRun} isRunning={isRunning} submittedCommand={run?.command} />
+            <MetricsPanel run={run} />
+          </div>
+          <TaskGraph graph={run?.task_graph} />
+          <AgentWorkspace agents={agents} events={run?.events ?? []} />
+          <div className="grid gap-5 xl:grid-cols-[1.08fr_0.92fr]">
+            <RunTimeline events={run?.events ?? []} />
+            <MemoryPanel memory={memory} />
+          </div>
+          <OutputPanel run={run} />
+          <section id="settings" className="panel p-5">
+            <p className="fine-label">Settings</p>
+            <p className="mt-2 text-sm leading-6 text-hive-muted">
+              Live providers are intentionally disabled for this pass. Mock mode keeps the dashboard safe for local demos.
+            </p>
+          </section>
+        </main>
+      </div>
+    </div>
   );
 }
-

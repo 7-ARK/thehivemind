@@ -6,18 +6,25 @@ const config: Config = {
     extend: {
       colors: {
         hive: {
-          bg: "#080b12",
-          panel: "#101620",
-          panelSoft: "#151d2a",
-          border: "#263244",
-          text: "#e5edf8",
-          muted: "#94a3b8",
-          accent: "#f0b429",
-          teal: "#35c2a1"
+          bg: "#171717",
+          shell: "#1c1c1b",
+          panel: "#232321",
+          panelSoft: "#2b2a27",
+          card: "#302f2b",
+          border: "#44413b",
+          text: "#f3efe7",
+          muted: "#a9a197",
+          faint: "#746d63",
+          accent: "#c4934d",
+          amber: "#d5a253",
+          green: "#8fb996",
+          cyan: "#86b8b2",
+          warning: "#b98143"
         }
       },
       boxShadow: {
-        panel: "0 18px 70px rgba(0, 0, 0, 0.28)"
+        panel: "0 18px 60px rgba(0, 0, 0, 0.22)",
+        inset: "inset 0 1px 0 rgba(255, 255, 255, 0.035)"
       }
     }
   },
@@ -25,4 +32,3 @@ const config: Config = {
 };
 
 export default config;
-
