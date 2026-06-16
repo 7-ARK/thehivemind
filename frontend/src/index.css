@@ -1,0 +1,54 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@450;500;600&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  
+  --color-[#090b0f]: #141517;
+  --color-[#0d0f14]: #1a1b1e;
+  --color-brand-bg: #141517;
+  --color-brand-panel: #1a1b1e;
+  --color-brand-border: #2c2e33;
+  --color-brand-accent: #20c997;
+  --color-brand-accent-hover: #1db184;
+  --color-brand-warn: #fab005;
+  --color-brand-muted: #909296;
+}
+
+/* Gorgeous subtle improvements */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #141517;
+}
+::-webkit-scrollbar-thumb {
+  background: #2c2e33;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #3a3f47;
+}
+
+body {
+  background-color: #141517;
+  color: #e9ecef;
+  margin: 0;
+  padding: 0;
+}
+
+/* Spark animations for microactions */
+@keyframes spin-slow {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-spin-slow {
+  animation: spin-slow 12s linear infinite;
+}

@@ -1,19 +1,16 @@
-from dataclasses import dataclass
+from fastapi import HTTPException
+from pydantic import BaseModel
+
+from app.core.config import get_settings
+from app.core.model_registry import get_model_metadata
 
 
-@dataclass(frozen=True)
-class ModelPrice:
-    input_per_million: float
-    output_per_million: float
-
-
-MODEL_PRICING_USD: dict[str, ModelPrice] = {
-    # Approximate planning numbers for MVP demos, not billing guarantees.
-    "gpt-5.5": ModelPrice(input_per_million=3.0, output_per_million=12.0),
-    "gemini-3.5-flash": ModelPrice(input_per_million=0.35, output_per_million=1.05),
-    "gpt-5.4-nano": ModelPrice(input_per_million=0.08, output_per_million=0.32),
-    "gemini-3.1-flash-lite": ModelPrice(input_per_million=0.05, output_per_million=0.20),
-}
+class CostEstimate(BaseModel):
+    model: str
+    input_tokens: int
+    output_tokens: int
+    cached_input_tokens: int = 0
+    estimated_cost_usd: float
 
 
 def estimate_tokens(text: str) -> int:
@@ -22,9 +19,73 @@ def estimate_tokens(text: str) -> int:
     return max(1, len(text) // 4)
 
 
-def estimate_cost_usd(model: str, input_tokens: int, output_tokens: int) -> float:
-    price = MODEL_PRICING_USD.get(model, ModelPrice(0.10, 0.40))
-    input_cost = (input_tokens / 1_000_000) * price.input_per_million
-    output_cost = (output_tokens / 1_000_000) * price.output_per_million
-    return round(input_cost + output_cost, 6)
+def estimate_messages_tokens(messages: list[dict]) -> int:
+    text = "\n".join(str(message.get("content", "")) for message in messages)
+    # Add a tiny overhead per message so short chat payloads are not undercounted.
+    return estimate_tokens(text) + (len(messages) * 4)
 
+
+def estimate_cost(
+    model: str,
+    input_tokens: int,
+    output_tokens: int,
+    cached_input_tokens: int = 0,
+    service_tier: str | None = None,
+) -> CostEstimate:
+    metadata = get_model_metadata(model, service_tier)
+    billable_input_tokens = max(0, input_tokens - cached_input_tokens)
+    cached_price = metadata.cached_input_price_per_1m
+    input_cost = (billable_input_tokens / 1_000_000) * metadata.input_price_per_1m
+    cached_cost = 0.0
+    if cached_input_tokens and cached_price is not None:
+        cached_cost = (cached_input_tokens / 1_000_000) * cached_price
+    elif cached_input_tokens:
+        cached_cost = (cached_input_tokens / 1_000_000) * metadata.input_price_per_1m
+    output_cost = (output_tokens / 1_000_000) * metadata.output_price_per_1m
+    return CostEstimate(
+        model=model,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        cached_input_tokens=cached_input_tokens,
+        estimated_cost_usd=round(input_cost + cached_cost + output_cost, 6),
+    )
+
+
+def estimate_cost_usd(model: str, input_tokens: int, output_tokens: int) -> float:
+    return estimate_cost(model, input_tokens, output_tokens).estimated_cost_usd
+
+
+def assert_call_budget(model: str, input_tokens: int, output_tokens: int, service_tier: str | None = None) -> CostEstimate:
+    settings = get_settings()
+    if input_tokens > settings.max_input_tokens_per_call:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Input token estimate {input_tokens} exceeds MAX_INPUT_TOKENS_PER_CALL={settings.max_input_tokens_per_call}.",
+        )
+    if output_tokens > settings.max_output_tokens_per_call:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Requested output tokens {output_tokens} exceeds MAX_OUTPUT_TOKENS_PER_CALL={settings.max_output_tokens_per_call}.",
+        )
+    estimate = estimate_cost(model, input_tokens, output_tokens, service_tier=service_tier)
+    if estimate.estimated_cost_usd > settings.max_cost_per_call_usd:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Estimated call cost ${estimate.estimated_cost_usd:.6f} exceeds "
+                f"MAX_COST_PER_CALL_USD=${settings.max_cost_per_call_usd:.2f}."
+            ),
+        )
+    return estimate
+
+
+def assert_run_budget(estimated_total_cost_usd: float) -> None:
+    settings = get_settings()
+    if estimated_total_cost_usd > settings.max_cost_per_run_usd:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Estimated run cost ${estimated_total_cost_usd:.6f} exceeds "
+                f"MAX_COST_PER_RUN_USD=${settings.max_cost_per_run_usd:.2f}."
+            ),
+        )

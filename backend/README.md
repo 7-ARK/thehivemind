@@ -21,5 +21,61 @@ The API will be available at `http://127.0.0.1:8000`.
 - `GET /api/runs/{run_id}`
 - `GET /api/agents`
 - `GET /api/memory/summary`
+- `GET /api/providers/status`
+- `POST /api/providers/test`
+- `GET /api/usage/summary`
 
 Mock mode is enabled by default. Provider adapters exist, but live paid calls are intentionally disabled in this MVP.
+
+## Safe Provider Testing
+
+Live provider calls are blocked unless all of these are true:
+
+- The request body uses `"mode": "live"`.
+- `.env` has `ALLOW_LIVE_CALLS=true`.
+- The call goes through `POST /api/providers/test` or the guarded provider router.
+- The target provider has an API key configured.
+- The input, output, and cost estimates are under the configured limits.
+
+Mock provider tests work without API keys:
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/providers/test ^
+  -H "Content-Type: application/json" ^
+  -d "{\"provider\":\"openai\",\"model\":\"gpt-5.4-nano\",\"mode\":\"mock\",\"prompt\":\"Reply with one short sentence saying TheHiveMind provider test worked.\",\"max_output_tokens\":80}"
+```
+
+To safely test OpenAI with the cheap worker model:
+
+1. Set `ALLOW_LIVE_CALLS=true`.
+2. Set `OPENAI_API_KEY`.
+3. Keep `MAX_OUTPUT_TOKENS_PER_CALL` and `MAX_COST_PER_CALL_USD` low.
+4. Use `model: "gpt-5.4-nano"` and a short prompt through `POST /api/providers/test`.
+
+To safely test Gemini Flash-Lite:
+
+1. Set `ALLOW_LIVE_CALLS=true`.
+2. Set `GOOGLE_API_KEY`.
+3. Use `provider: "gemini"` and `model: "gemini-3.1-flash-lite"`.
+
+OpenRouter can be tested similarly with `OPENROUTER_API_KEY` and `model: "qwen/qwen3-coder"`.
+
+## Usage Tracking
+
+Every provider test call writes a SQLite usage row with provider, model, mode, token counts, estimated cost, latency, success/failure, request type, and sanitized metadata. Check totals with:
+
+```bash
+curl http://127.0.0.1:8000/api/usage/summary
+```
+
+Detailed analytics endpoints and CSV export are documented in `../docs/usage_tracking.md`.
+
+## Search And Grounding
+
+Web search, Gemini grounding, and OpenRouter search plugins are disabled by default:
+
+- `ENABLE_OPENAI_WEB_SEARCH=false`
+- `ENABLE_GEMINI_GROUNDING=false`
+- `ENABLE_OPENROUTER_SEARCH=false`
+
+The provider adapters do not send search tool/plugin configuration in this step.

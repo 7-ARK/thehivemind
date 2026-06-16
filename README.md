@@ -118,8 +118,8 @@ Screenshots will be added after the first visual pass:
 - Add project workspaces, artifact storage, and approval checkpoints.
 - Add auth, organization settings, and provider budget controls.
 - Add evaluation traces for agent quality and routing decisions.
+- Connect the frontend analytics dashboard to the usage tracking endpoints in `docs/usage_tracking.md`.
 
 ## What Is Still Mock
 
 All agent outputs are deterministic mock responses. Provider classes exist, but OpenAI, Gemini, and OpenRouter calls are intentionally disabled until API key handling, budgets, and live-call controls are implemented.
-

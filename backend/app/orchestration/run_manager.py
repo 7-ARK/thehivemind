@@ -12,11 +12,13 @@ from app.agents.model_selector_agent import ModelSelectorAgent
 from app.agents.qa_agent import QAAgent
 from app.agents.research_agent import ResearchAgent
 from app.core.config import Settings, get_settings
+from app.core.model_registry import get_model_metadata
 from app.core.models import AgentInfo, FinalOutput, RunMetrics, RunRecord
 from app.memory.current_state import update_current_state
 from app.memory.retrieval import retrieve_memory
 from app.orchestration.event_stream import build_event
 from app.orchestration.task_graph import build_default_task_graph
+from app.storage.usage_store import UsageStore
 
 
 class RunManager:
@@ -133,6 +135,7 @@ class RunManager:
 
         update_current_state(f"Last completed run: {command}. Status: completed. Run ID: {run_id}.")
         self._save_run(record)
+        self._log_usage_for_events(record)
         return record
 
     def get_run(self, run_id: str) -> RunRecord | None:
@@ -235,3 +238,39 @@ class RunManager:
                 (record.run_id, record.command, record.status, record.started_at.isoformat(), payload),
             )
 
+    def _log_usage_for_events(self, record: RunRecord) -> None:
+        store = UsageStore(self.settings)
+        for index, event in enumerate(record.events, start=1):
+            metadata = get_model_metadata(event.model_used, self.settings.ceo_service_tier if event.model_used == self.settings.ceo_model else None)
+            store.log_call(
+                run_id=record.run_id,
+                task_id=f"{record.run_id}:step-{index}",
+                agent_name=event.agent_name,
+                agent_role=event.agent_role,
+                provider=metadata.provider,
+                model=event.model_used,
+                mode=record.mode,
+                request_type=self._request_type_for_agent(event.agent_name),
+                input_tokens=event.estimated_input_tokens,
+                output_tokens=event.estimated_output_tokens,
+                cached_tokens=0,
+                reasoning_tokens=0,
+                search_calls=0,
+                search_cost_usd=0,
+                estimated_cost_usd=event.estimated_cost_usd,
+                latency_ms=max(1, int(record.metrics.run_duration_seconds * 1000 / max(1, len(record.events)))),
+                success=event.status == "completed",
+                created_at=event.timestamp,
+                metadata={"usage_source": "orchestration_run"},
+            )
+
+    def _request_type_for_agent(self, agent_name: str) -> str:
+        return {
+            "CEO Agent": "planning",
+            "Model Selector Agent": "model_routing",
+            "Research Agent": "market_research",
+            "Coding Agent": "code_generation",
+            "Content Agent": "content_generation",
+            "QA Agent": "validation",
+            "TheHiveMind": "final_assembly",
+        }.get(agent_name, "orchestration")

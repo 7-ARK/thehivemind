@@ -1,0 +1,6 @@
+{
+  "name": "TheHiveMind",
+  "description": "Multi-agent AI operating system and cost intelligence command center.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

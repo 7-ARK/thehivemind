@@ -1,25 +1,29 @@
 {
   "name": "thehivemind-frontend",
-  "version": "0.1.0",
   "private": true,
+  "version": "0.0.0",
+  "type": "module",
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "lint": "next lint"
+    "dev": "vite --host 0.0.0.0 --port 3000",
+    "build": "vite build",
+    "clean": "rimraf dist",
+    "lint": "tsc --noEmit"
   },
   "dependencies": {
-    "next": "15.5.19",
-    "react": "19.0.0",
-    "react-dom": "19.0.0",
-    "lucide-react": "0.468.0"
+    "@tailwindcss/vite": "^4.1.14",
+    "lucide-react": "^0.546.0",
+    "react": "^19.0.1",
+    "react-dom": "^19.0.1"
   },
   "devDependencies": {
-    "@types/node": "22.10.5",
-    "@types/react": "19.0.2",
-    "@types/react-dom": "19.0.2",
-    "autoprefixer": "10.4.20",
-    "postcss": "8.5.10",
-    "tailwindcss": "3.4.17",
-    "typescript": "5.7.2"
+    "@types/node": "^22.14.0",
+    "@vitejs/plugin-react": "^6.0.2",
+    "autoprefixer": "^10.4.21",
+    "esbuild": "^0.28.1",
+    "rimraf": "^6.0.1",
+    "tailwindcss": "^4.1.14",
+    "tsx": "^4.21.0",
+    "typescript": "~5.8.2",
+    "vite": "^8.0.16"
   }
 }
