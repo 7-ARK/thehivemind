@@ -42,6 +42,29 @@ class ArtifactStore:
         self._write_manifest(run_id, [*self.list_artifacts(run_id), artifact])
         return artifact
 
+    def register_file(
+        self,
+        *,
+        run_id: str,
+        name: str,
+        artifact_type: str,
+        path: str,
+        agent_name: str,
+        summary: str,
+    ) -> Artifact:
+        artifact = Artifact(
+            id=str(uuid.uuid4()),
+            run_id=run_id,
+            name=name,
+            type=artifact_type,
+            path=path,
+            created_at=datetime.now(UTC).isoformat(),
+            agent_name=agent_name,
+            summary=summary,
+        )
+        self._write_manifest(run_id, [*self.list_artifacts(run_id), artifact])
+        return artifact
+
     def list_artifacts(self, run_id: str) -> list[Artifact]:
         manifest = self._manifest_path(run_id)
         if not manifest.exists():
@@ -56,6 +79,9 @@ class ArtifactStore:
                 path = Path(artifact.path)
                 if not path.exists():
                     raise HTTPException(status_code=404, detail="Artifact file is missing.")
+                if path.is_dir():
+                    files = [str(item.relative_to(path)).replace("\\", "/") for item in path.rglob("*") if item.is_file()]
+                    return ArtifactContent(**artifact.model_dump(), content=json.dumps({"files": files}, indent=2))
                 return ArtifactContent(**artifact.model_dump(), content=path.read_text(encoding="utf-8"))
         raise HTTPException(status_code=404, detail="Artifact not found.")
 

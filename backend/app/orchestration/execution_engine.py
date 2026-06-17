@@ -9,6 +9,7 @@ from fastapi import HTTPException
 
 from app.agents.business_agent import BusinessAgent
 from app.agents.ceo_agent import CEOAgent
+from app.agents.file_builder_agent import FileBuilderAgent
 from app.agents.model_selector_agent import ModelSelectorAgent
 from app.agents.operations_agent import OperationsAgent
 from app.agents.qa_agent import QAAgent
@@ -18,11 +19,20 @@ from app.core.cost_estimator import assert_run_budget, estimate_cost_usd, estima
 from app.core.model_registry import get_model_metadata
 from app.core.models import AgentInfo, FinalOutput, RunEvent, RunMetrics, RunRecord
 from app.memory.current_state import update_current_state
+from app.memory.embedding_memory import EmbeddingMemory
 from app.memory.retrieval import retrieve_memory
 from app.memory.vector_memory import LocalVectorMemory
+from app.orchestration.task_packet import TaskPacket
 from app.orchestration.task_graph import build_default_task_graph
+from app.projects.project_state import update_project_state
+from app.projects.project_workspace import ProjectWorkspaceManager
+from app.projects.schemas import ProjectWorkspaceSummary
 from app.providers.provider_router import generate_with_provider
 from app.storage.usage_store import UsageStore
+from app.workspace.command_runner import SafeCommandRunner
+from app.workspace.file_writer import WorkspaceFileWriter
+from app.workspace.schemas import CommandResult, WorkspaceSummary
+from app.workspace.workspace_manager import WorkspaceManager
 
 
 RunResult = RunRecord
@@ -34,6 +44,8 @@ async def execute_run(
     project_id: str | None = None,
     run_type: str = "business_launch_plan",
     allow_ceo_live: bool = False,
+    allow_file_writes: bool = False,
+    allow_safe_commands: bool = False,
     max_cost_usd: float | None = None,
 ) -> RunResult:
     return await ExecutionEngine().execute_run(
@@ -42,6 +54,8 @@ async def execute_run(
         project_id=project_id,
         run_type=run_type,
         allow_ceo_live=allow_ceo_live,
+        allow_file_writes=allow_file_writes,
+        allow_safe_commands=allow_safe_commands,
         max_cost_usd=max_cost_usd,
     )
 
@@ -62,6 +76,8 @@ class ExecutionEngine:
         project_id: str | None = None,
         run_type: str = "business_launch_plan",
         allow_ceo_live: bool = False,
+        allow_file_writes: bool = False,
+        allow_safe_commands: bool = False,
         max_cost_usd: float | None = None,
     ) -> RunRecord:
         if mode not in {"mock", "live"}:
@@ -75,6 +91,20 @@ class ExecutionEngine:
         started_at = datetime.now(UTC)
         max_cost = min(max_cost_usd or self.settings.max_cost_per_run_usd, self.settings.max_cost_per_run_usd)
         memory = retrieve_memory(command)
+        if run_type == "prototype_build":
+            return await self._execute_prototype_build(
+                command=command,
+                mode=mode,
+                project_id=project_id,
+                run_type=run_type,
+                allow_ceo_live=allow_ceo_live,
+                allow_file_writes=allow_file_writes,
+                allow_safe_commands=allow_safe_commands,
+                max_cost=max_cost,
+                run_id=run_id,
+                started_at=started_at,
+                memory=memory,
+            )
         agents = self._build_agents(allow_ceo_live=allow_ceo_live, mode=mode)
         events: list[RunEvent] = []
         artifact_records = []
@@ -308,6 +338,452 @@ class ExecutionEngine:
         )
         self._save_run(record)
         self._update_memory(record, model_selection)
+        return record
+
+    async def _execute_prototype_build(
+        self,
+        *,
+        command: str,
+        mode: str,
+        project_id: str | None,
+        run_type: str,
+        allow_ceo_live: bool,
+        allow_file_writes: bool,
+        allow_safe_commands: bool,
+        max_cost: float,
+        run_id: str,
+        started_at: datetime,
+        memory,
+    ) -> RunRecord:
+        if not allow_file_writes:
+            raise HTTPException(status_code=403, detail="prototype_build requires allow_file_writes=true.")
+
+        active_project_id = project_id or "default-project"
+        project_manager = ProjectWorkspaceManager(self.settings)
+        project_workspace = project_manager.ensure_project_workspace(active_project_id)
+        project_root = project_manager.get_project_root(active_project_id)
+        project_manager.create_run_log_folder(run_id)
+        project_manifest = project_manager.get_project_manifest(active_project_id)
+        project_state_text = project_manager.read_project_file(active_project_id, "project_state.md")
+        relevant_project_files = [
+            item.model_dump()
+            for item in project_manifest.files
+            if item.path.startswith("website/") or item.path in {"project_state.md", "manifest.json"}
+        ][:8]
+        command_runner = SafeCommandRunner(self.settings)
+        agents = {
+            **self._build_agents(allow_ceo_live=allow_ceo_live, mode=mode),
+            "file_builder": FileBuilderAgent("File Builder Agent", "Creates safe workspace files", self.settings.cheap_worker_model),
+        }
+        relevant_memory = [snippet.content for snippet in memory.retrieved_snippets[:2]]
+        task_packets: list[TaskPacket] = []
+        events: list[RunEvent] = []
+        artifact_records = []
+
+        def packet(task_id: str, agent_key: str, objective: str, input_artifacts: list[str], expected_outputs: list[str], allowed_tools: list[str]) -> TaskPacket:
+            agent = agents[agent_key]
+            item = TaskPacket(
+                run_id=run_id,
+                project_id=active_project_id,
+                task_id=task_id,
+                agent_name=agent.name,
+                agent_role=agent.role,
+                objective=objective,
+                relevant_memory=relevant_memory,
+                relevant_project_files=[
+                    {"path": "project_state.md", "summary": project_state_text[:800]},
+                    *relevant_project_files,
+                ],
+                input_artifacts=input_artifacts,
+                expected_outputs=expected_outputs,
+                constraints=[
+                    "Do not use web search or external APIs.",
+                    "Do not touch environment files or secrets.",
+                    "Only write inside the persistent project workspace.",
+                    "Keep run logs separate from project files.",
+                    "Use artifacts for handoff between agents.",
+                ],
+                allowed_tools=allowed_tools,
+            )
+            task_packets.append(item)
+            return item
+
+        ceo_packet = packet("task-ceo-plan", "ceo", "Plan the prototype build and define safe handoffs.", [], ["ceo_plan.md"], ["artifact_write"])
+        ceo_output = await self._run_step(
+            run_id=run_id,
+            command=command,
+            mode=mode,
+            agent_name="CEO Agent",
+            agent_role=agents["ceo"].role,
+            model=agents["ceo"].assigned_model,
+            request_type="planning",
+            prompt=ceo_packet.model_dump_json(indent=2),
+            mock_output=self._ceo_plan(command),
+        )
+        ceo_artifact = self.artifacts.save_text(
+            run_id=run_id,
+            name="ceo_plan.md",
+            artifact_type="markdown",
+            content=ceo_output["text"],
+            agent_name="CEO Agent",
+            summary="CEO plan for sandboxed prototype build.",
+        )
+        artifact_records.append(ceo_artifact)
+        events.append(self._event_from_step(ceo_output, "Created CEO prototype plan", ceo_packet.objective, ceo_artifact.id))
+
+        model_selection = self._model_selection(agents, mode, allow_ceo_live)
+        selector_packet = packet("task-model-selection", "selector", "Select safe models and tools for prototype build.", [ceo_artifact.id], ["model_selection.json"], ["artifact_write"])
+        selector_output = await self._run_step(
+            run_id=run_id,
+            command=command,
+            mode=mode,
+            agent_name="Model Selector Agent",
+            agent_role=agents["selector"].role,
+            model=agents["selector"].assigned_model,
+            request_type="model_routing",
+            prompt=selector_packet.model_dump_json(indent=2),
+            mock_output=json.dumps(model_selection, indent=2),
+        )
+        selector_artifact = self.artifacts.save_text(
+            run_id=run_id,
+            name="model_selection.json",
+            artifact_type="json",
+            content=selector_output["text"],
+            agent_name="Model Selector Agent",
+            summary="Safe model choices for prototype build.",
+        )
+        artifact_records.append(selector_artifact)
+        events.append(self._event_from_step(selector_output, "Selected models and workspace tools", selector_packet.objective, selector_artifact.id))
+
+        operations_packet = packet("task-operations", "operations", "Define order flow and manual approval requirements for the prototype.", [ceo_artifact.id], ["operations_checklist.md"], ["artifact_write"])
+        operations_output = await self._run_step(
+            run_id=run_id,
+            command=command,
+            mode=mode,
+            agent_name="Operations Agent",
+            agent_role=agents["operations"].role,
+            model=agents["operations"].assigned_model,
+            request_type="operations_planning",
+            prompt=operations_packet.model_dump_json(indent=2),
+            mock_output=agents["operations"].create_operations_checklist(command),
+        )
+        operations_artifact = self.artifacts.save_text(
+            run_id=run_id,
+            name="operations_checklist.md",
+            artifact_type="markdown",
+            content=operations_output["text"],
+            agent_name="Operations Agent",
+            summary="Operations and manual approval requirements for prototype.",
+        )
+        artifact_records.append(operations_artifact)
+        events.append(self._event_from_step(operations_output, "Created prototype operations checklist", operations_packet.objective, operations_artifact.id))
+
+        content_packet = packet("task-content", "content", "Write homepage and product content for the prototype.", [ceo_artifact.id, operations_artifact.id], ["content_calendar.md"], ["artifact_write"])
+        content_output = await self._run_step(
+            run_id=run_id,
+            command=command,
+            mode=mode,
+            agent_name="Content Agent",
+            agent_role=agents["content"].role,
+            model=agents["content"].assigned_model,
+            request_type="content_generation",
+            prompt=content_packet.model_dump_json(indent=2),
+            mock_output=agents["content"].create_content_calendar(command),
+        )
+        content_artifact = self.artifacts.save_text(
+            run_id=run_id,
+            name="content_calendar.md",
+            artifact_type="markdown",
+            content=content_output["text"],
+            agent_name="Content Agent",
+            summary="Prototype copy and launch content context.",
+        )
+        artifact_records.append(content_artifact)
+        events.append(self._event_from_step(content_output, "Created content inputs for prototype", content_packet.objective, content_artifact.id))
+
+        builder_packet = packet(
+            "task-file-builder",
+            "file_builder",
+            "Create or continue the Greek yogurt order website files inside the persistent project workspace.",
+            [ceo_artifact.id, operations_artifact.id, content_artifact.id],
+            ["README.md", "app.py", "requirements.txt", "sample_orders.json", "index.html"],
+            ["project_file_write"],
+        )
+        file_entries = agents["file_builder"].build_project_greek_yogurt_site(active_project_id, run_id, command)
+        workspace_artifacts = []
+        for entry in file_entries:
+            artifact = self.artifacts.register_file(
+                run_id=run_id,
+                name=entry.path,
+                artifact_type="project_file",
+                path=str(project_root / entry.path),
+                agent_name="File Builder Agent",
+                summary=entry.after_summary,
+            )
+            workspace_artifacts.append(artifact)
+            artifact_records.append(artifact)
+        file_builder_text = "\n".join(f"- {entry.operation}: {entry.path} ({entry.size_bytes} bytes)" for entry in file_entries)
+        file_builder_event = self._manual_step(
+            run_id=run_id,
+            mode=mode,
+            agent_name="File Builder Agent",
+            agent_role=agents["file_builder"].role,
+            model=agents["file_builder"].assigned_model,
+            request_type="file_generation",
+            input_text=builder_packet.model_dump_json(indent=2),
+            output_text=file_builder_text,
+            action_summary="Created prototype workspace files",
+            artifact_id=workspace_artifacts[0].id if workspace_artifacts else ceo_artifact.id,
+        )
+        events.append(file_builder_event)
+
+        command_results: list[CommandResult] = []
+        if allow_safe_commands:
+            command_results.append(
+                command_runner.run_project_command(
+                    active_project_id,
+                    run_id,
+                    ["python", "-m", "py_compile", "website/app.py"],
+                )
+            )
+        else:
+            command_results.append(
+                CommandResult(
+                    command=["python", "-m", "py_compile", "website/app.py"],
+                    cwd=".",
+                    exit_code=-1,
+                    stdout="",
+                    stderr="",
+                    duration_ms=0,
+                    allowed=False,
+                    blocked_reason="allow_safe_commands=false",
+                )
+            )
+        command_text = "\n".join(
+            f"- {'allowed' if result.allowed else 'blocked'} {result.command}: exit={result.exit_code} reason={result.blocked_reason or 'n/a'}"
+            for result in command_results
+        )
+        command_event = self._manual_step(
+            run_id=run_id,
+            mode=mode,
+            agent_name="Safe Command Runner",
+            agent_role="Validation sandbox",
+            model=self.settings.cheap_worker_model,
+            request_type="command_validation",
+            input_text="Validate generated prototype files with safe commands.",
+            output_text=command_text,
+            action_summary="Validated generated code with safe command runner",
+            artifact_id=workspace_artifacts[0].id if workspace_artifacts else ceo_artifact.id,
+        )
+        events.append(command_event)
+
+        project_manifest = project_manager.get_project_manifest(active_project_id)
+        manifest_artifact = self.artifacts.register_file(
+            run_id=run_id,
+            name="project_manifest.json",
+            artifact_type="project_manifest",
+            path=str(project_root / "manifest.json"),
+            agent_name="Project Workspace Manager",
+            summary="Persistent project manifest with created/updated files.",
+        )
+        state_artifact = self.artifacts.register_file(
+            run_id=run_id,
+            name="project_state.md",
+            artifact_type="project_state",
+            path=str(project_root / "project_state.md"),
+            agent_name="Project Workspace Manager",
+            summary="Persistent project state before final update.",
+        )
+        command_log_artifact = self.artifacts.register_file(
+            run_id=run_id,
+            name="commands.json",
+            artifact_type="command_log",
+            path=str(self.settings.run_path / run_id / "commands.json"),
+            agent_name="Safe Command Runner",
+            summary="Safe command execution log.",
+        )
+        prototype_artifact = self.artifacts.register_file(
+            run_id=run_id,
+            name="website",
+            artifact_type="prototype_project",
+            path=str(project_root / "website"),
+            agent_name="File Builder Agent",
+            summary="Persistent Greek yogurt order website prototype project.",
+        )
+        artifact_records.extend([manifest_artifact, state_artifact, command_log_artifact, prototype_artifact])
+
+        qa_input = "\n".join([artifact.summary for artifact in artifact_records]) + "\n" + command_text
+        qa_packet = packet("task-qa", "qa", "Review generated files, command results, and safety constraints.", [artifact.id for artifact in artifact_records], ["qa_review.md"], ["artifact_write"])
+        qa_output = await self._run_step(
+            run_id=run_id,
+            command=command,
+            mode=mode,
+            agent_name="QA Agent",
+            agent_role=agents["qa"].role,
+            model=agents["qa"].assigned_model,
+            request_type="validation",
+            prompt=qa_packet.model_dump_json(indent=2),
+            mock_output=self._prototype_qa_review(command, qa_input, command_results),
+        )
+        qa_artifact = self.artifacts.save_text(
+            run_id=run_id,
+            name="qa_review.md",
+            artifact_type="markdown",
+            content=qa_output["text"],
+            agent_name="QA Agent",
+            summary="QA review of generated workspace files and command validation.",
+        )
+        artifact_records.append(qa_artifact)
+        events.append(self._event_from_step(qa_output, "Reviewed prototype workspace outputs", qa_packet.objective, qa_artifact.id))
+
+        final_report = self._prototype_final_report(command, active_project_id, file_entries, command_results, artifact_records, task_packets)
+        final_artifact = self.artifacts.save_text(
+            run_id=run_id,
+            name="final_report.md",
+            artifact_type="markdown",
+            content=final_report,
+            agent_name="TheHiveMind",
+            summary="Final report for sandboxed autonomy prototype build.",
+        )
+        artifact_records.append(final_artifact)
+        events.append(
+            self._manual_step(
+                run_id=run_id,
+                mode=mode,
+                agent_name="TheHiveMind",
+                agent_role="Final assembly",
+                model=self._safe_ceo_model(mode, allow_ceo_live),
+                request_type="final_assembly",
+                input_text=qa_output["text"],
+                output_text=final_report,
+                action_summary="Assembled sandboxed autonomy final report",
+                artifact_id=final_artifact.id,
+            )
+        )
+
+        completed_at = datetime.now(UTC)
+        metrics = RunMetrics(
+            total_estimated_tokens=sum(event.estimated_tokens or event.estimated_input_tokens + event.estimated_output_tokens for event in events),
+            total_estimated_cost_usd=round(sum(event.estimated_cost_usd for event in events), 6),
+            agents_used=len({event.agent_name for event in events if event.agent_name != "TheHiveMind"}),
+            tasks_completed=len(events),
+            run_duration_seconds=round((completed_at - started_at).total_seconds(), 3),
+            memory_chunks_retrieved=len(memory.retrieved_snippets),
+        )
+        assert_run_budget(metrics.total_estimated_cost_usd)
+        if metrics.total_estimated_cost_usd > max_cost:
+            raise HTTPException(status_code=400, detail=f"Estimated run cost ${metrics.total_estimated_cost_usd:.6f} exceeds request max_cost_usd=${max_cost:.2f}.")
+
+        created_files = [entry.path for entry in file_entries if entry.operation == "created"]
+        edited_files = [entry.path for entry in file_entries if entry.operation == "updated"]
+        command_success = all(result.allowed and result.exit_code == 0 for result in command_results)
+        project_state_content = update_project_state(
+            project_root / "project_state.md",
+            project_id=active_project_id,
+            run_id=run_id,
+            command=command,
+            files_created=created_files,
+            files_edited=edited_files,
+            command_success=command_success,
+            next_steps=[
+                "Review the website prototype locally.",
+                "Add tests before expanding beyond a proof of concept.",
+                "Keep public claims and launch actions behind human approval.",
+            ],
+        )
+        state_entry = project_manager.write_project_file(
+            active_project_id,
+            "project_state.md",
+            project_state_content,
+            "Project Workspace Manager",
+            run_id,
+            "Latest truth file for the persistent project workspace.",
+        )
+        project_manifest = project_manager.append_project_run(
+            active_project_id,
+            run_id,
+            f"Prototype build run completed for: {command}",
+        )
+        project_manager.write_run_logs(
+            run_id=run_id,
+            run_summary={
+                "run_id": run_id,
+                "project_id": active_project_id,
+                "run_type": run_type,
+                "status": "completed",
+                "files_created": created_files,
+                "files_edited": edited_files,
+                "commands": [result.model_dump() for result in command_results],
+                "artifact_ids": [artifact.id for artifact in artifact_records],
+                "estimated_cost_usd": metrics.total_estimated_cost_usd,
+            },
+            timeline=[event.model_dump() for event in events],
+            commands=[result.model_dump() for result in command_results],
+            project_manifest=project_manifest,
+        )
+        workspace_summary = WorkspaceSummary(
+            root=project_manager.public_root(active_project_id),
+            files_created=created_files,
+            files_edited=[*edited_files, state_entry.path] if state_entry.operation == "updated" else edited_files,
+            commands_run=command_results,
+            command_success=command_success,
+        )
+        project_workspace_summary = ProjectWorkspaceSummary(
+            project_id=active_project_id,
+            root=project_workspace.root,
+            files_created=[entry.path for entry in file_entries if entry.operation == "created"],
+            files_edited=[entry.path for entry in file_entries if entry.operation == "updated"],
+            commands_run=[result.model_dump() for result in command_results],
+            command_success=command_success,
+        )
+        memory_updates = self._update_prototype_memory(
+            run_id=run_id,
+            project_id=active_project_id,
+            run_type=run_type,
+            command=command,
+            file_entries=[*file_entries, state_entry],
+            command_results=command_results,
+            artifact_records=artifact_records,
+            task_packets=task_packets,
+            cost=metrics.total_estimated_cost_usd,
+        )
+        record = RunRecord(
+            run_id=run_id,
+            command=command,
+            mode=mode,
+            project_id=active_project_id,
+            run_type=run_type,
+            status="completed",
+            started_at=started_at,
+            completed_at=completed_at,
+            events=events,
+            agents=[self._agent_info(agent) for agent in agents.values()],
+            task_graph=build_default_task_graph(),
+            metrics=metrics,
+            memory=memory,
+            final_output=FinalOutput(
+                summary=f"Persistent Project Workspace v1 updated project {active_project_id} for: {command}",
+                what_was_done=[
+                    "Created task packets with task-specific context.",
+                    "Generated or updated real files inside the persistent project workspace.",
+                    "Saved run-specific logs separately from project files.",
+                    "Ran safe validation commands and logged results.",
+                    "Registered generated files, project manifest, project state, and command logs as artifacts.",
+                    "Updated memory with summaries, paths, command results, and agent decisions.",
+                ],
+                recommended_next_actions=[
+                    "Open the project files for review before running the prototype server manually.",
+                    "Add tests if the prototype becomes more than a static proof of concept.",
+                    "Keep dangerous commands and external actions blocked until explicit approval flows exist.",
+                ],
+                generated_artifacts=[artifact.name for artifact in artifact_records],
+            ),
+            artifacts=artifact_records,
+            workspace=workspace_summary,
+            project_workspace=project_workspace_summary,
+            memory_updates=memory_updates,
+        )
+        self._save_run(record)
         return record
 
     def _build_agents(self, *, allow_ceo_live: bool, mode: str) -> dict[str, Any]:
@@ -590,6 +1066,156 @@ Run Engine v1 completed a controlled, sequential workflow and saved stage output
 - No emails, social posts, deployments, supplier sourcing, or physical production steps were executed.
 - Human review is required before using claims, prices, delivery promises, or launch content publicly.
 """
+
+    def _prototype_qa_review(self, command: str, qa_input: str, command_results: list[CommandResult]) -> str:
+        command_status = "passed" if all(result.allowed and result.exit_code == 0 for result in command_results) else "needs review"
+        return f"""# Prototype QA Review
+
+## Command
+{command}
+
+## File Review
+- Project files were generated or updated under the persistent project workspace.
+- Generated files include Python, Markdown, JSON, and HTML.
+- No `.env` files, dependency installs, deployments, emails, or social posts were created.
+
+## Command Validation
+- Safe command status: {command_status}
+- Commands reviewed: {len(command_results)}
+
+## Safety Review
+- File writes were limited to the approved project workspace.
+- Validation used the command allowlist.
+- Prototype server was not started automatically.
+
+## Handoff Summary
+{qa_input[:2000]}
+
+## Status
+Approved for local review only. Human approval is still required before public use, deployment, or live customer handling.
+"""
+
+    def _prototype_final_report(
+        self,
+        command: str,
+        project_id: str | None,
+        file_entries: list[Any],
+        command_results: list[CommandResult],
+        artifact_records: list[Any],
+        task_packets: list[TaskPacket],
+    ) -> str:
+        files = "\n".join(f"- {entry.path} ({entry.operation}, {entry.size_bytes} bytes)" for entry in file_entries)
+        commands = "\n".join(
+            f"- `{' '.join(result.command)}` in `{result.cwd}` -> exit {result.exit_code}"
+            + (f" blocked: {result.blocked_reason}" if result.blocked_reason else "")
+            for result in command_results
+        )
+        packets = "\n".join(f"- {packet.agent_name}: {packet.objective}" for packet in task_packets)
+        artifacts = "\n".join(f"- {artifact.name} [{artifact.type}]" for artifact in artifact_records)
+        return f"""# Persistent Project Workspace v1 Report
+
+## Command
+{command}
+
+## Project
+{project_id or "unassigned"}
+
+## Task Packets
+{packets}
+
+## Files Created Or Edited
+{files}
+
+## Safe Commands Run
+{commands}
+
+## Artifacts Registered
+{artifacts}
+
+## Safety Notes
+- Project work stayed inside the persistent project workspace.
+- Run logs were saved separately from project files.
+- No live API calls, emails, social posts, production deploys, package installs, or dangerous shell commands were performed.
+- The generated Python file was validated with `python -m py_compile` when safe commands were allowed.
+"""
+
+    def _update_prototype_memory(
+        self,
+        *,
+        run_id: str,
+        project_id: str | None,
+        run_type: str,
+        command: str,
+        file_entries: list[Any],
+        command_results: list[CommandResult],
+        artifact_records: list[Any],
+        task_packets: list[TaskPacket],
+        cost: float,
+    ) -> list[str]:
+        files = [entry.path for entry in file_entries]
+        commands = [" ".join(result.command) for result in command_results]
+        update_current_state(
+            f"Last Persistent Project Workspace v1 run: {command}. Project: {project_id or 'unassigned'}. "
+            f"Run ID: {run_id}. Files: {', '.join(files)}. Commands: {', '.join(commands)}. "
+            f"Estimated cost: ${cost:.6f}."
+        )
+        vector_memory = LocalVectorMemory(str(self.settings.vector_path))
+        vector_memory.add_chunk(
+            f"Project workspace run {run_id}",
+            (
+                f"Project id: {project_id}. Run type: {run_type}. Files changed: {', '.join(files)}. "
+                f"Commands run: {', '.join(commands)}. Artifacts: {', '.join(artifact.name for artifact in artifact_records)}."
+            ),
+        )
+        embedding_memory = EmbeddingMemory(self.settings)
+        memory_ids = []
+        memory_ids.append(
+            embedding_memory.add_memory(
+                text=(
+                    f"Persistent project run {run_id} changed files {', '.join(files)}. "
+                    f"Command results: {', '.join(f'{result.command}:{result.exit_code}' for result in command_results)}. "
+                    f"Task packets: {', '.join(packet.task_id for packet in task_packets)}."
+                ),
+                metadata={
+                    "project_id": project_id,
+                    "run_id": run_id,
+                    "agent_name": "TheHiveMind",
+                    "artifact_id": None,
+                    "memory_type": "project_update",
+                    "tags": ["persistent_project_workspace", run_type],
+                },
+            )
+        )
+        for entry in file_entries:
+            memory_ids.append(
+                embedding_memory.add_memory(
+                    text=f"File change for project {project_id}: {entry.path} was {entry.operation}.",
+                    metadata={
+                        "project_id": project_id,
+                        "run_id": run_id,
+                        "agent_name": getattr(entry, "agent_name", "File Builder Agent"),
+                        "file_path": entry.path,
+                        "artifact_id": None,
+                        "memory_type": "file_change",
+                        "tags": ["file_change", run_type],
+                    },
+                )
+            )
+        for artifact in artifact_records:
+            memory_ids.append(
+                embedding_memory.add_memory(
+                    text=f"Artifact {artifact.name}: {artifact.summary}. Path: {artifact.path}",
+                    metadata={
+                        "project_id": project_id,
+                        "run_id": run_id,
+                        "agent_name": artifact.agent_name,
+                        "artifact_id": artifact.id,
+                        "memory_type": "agent_decision" if artifact.agent_name != "File Builder Agent" else "artifact_summary",
+                        "tags": ["artifact", artifact.type],
+                    },
+                )
+            )
+        return memory_ids
 
     def _agent_info(self, agent: Any) -> AgentInfo:
         return AgentInfo(

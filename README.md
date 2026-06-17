@@ -104,6 +104,56 @@ curl -X POST http://127.0.0.1:8000/api/runs ^
 
 Artifacts are saved under `backend/data/artifacts/{run_id}/`.
 
+## Persistent Project Workspace
+
+TheHiveMind keeps each project in a persistent workspace under `backend/data/projects/{project_id}/`. Each run gets its own run log under `backend/data/runs/{run_id}/`. This lets future runs continue editing the same project instead of starting from zero.
+
+Project files are saved under:
+
+```text
+backend/data/projects/{project_id}/
+```
+
+Run logs are saved under:
+
+```text
+backend/data/runs/{run_id}/
+```
+
+Run 1 creates the initial Greek yogurt website prototype:
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/runs ^
+  -H "Content-Type: application/json" ^
+  -d "{\"command\":\"Create a simple Greek yogurt order website prototype with files.\",\"mode\":\"mock\",\"project_id\":\"greek-yogurt-test\",\"run_type\":\"prototype_build\",\"allow_file_writes\":true,\"allow_safe_commands\":true,\"allow_ceo_live\":false,\"max_cost_usd\":0.25}"
+```
+
+Run 2 continues the same project and adds status tracking:
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/runs ^
+  -H "Content-Type: application/json" ^
+  -d "{\"command\":\"Continue the Greek yogurt website and add a simple order status page.\",\"mode\":\"mock\",\"project_id\":\"greek-yogurt-test\",\"run_type\":\"prototype_build\",\"allow_file_writes\":true,\"allow_safe_commands\":true,\"allow_ceo_live\":false,\"max_cost_usd\":0.25}"
+```
+
+Project inspection endpoints:
+
+- `GET /api/projects`
+- `GET /api/projects/{project_id}`
+- `GET /api/projects/{project_id}/state`
+- `GET /api/projects/{project_id}/manifest`
+- `GET /api/projects/{project_id}/files`
+- `GET /api/projects/{project_id}/files/{path}`
+- `GET /api/projects/{project_id}/runs`
+- `GET /api/projects/{project_id}/changes`
+
+Legacy run workspace endpoints still exist for earlier sandbox inspection:
+
+- `GET /api/runs/{run_id}/workspace/files`
+- `GET /api/runs/{run_id}/workspace/files/{path}`
+- `GET /api/runs/{run_id}/workspace/manifest`
+- `GET /api/runs/{run_id}/workspace/commands`
+
 ## Environment Variables
 
 Copy `.env.example` to `.env` if needed. The repository includes a local placeholder `.env`, but `.env` is ignored by Git.
@@ -118,6 +168,9 @@ OPENROUTER_API_KEY=
 DATABASE_URL=sqlite:///./thehivemind.db
 VECTOR_STORE_PATH=./data/vector_memory
 ARTIFACT_STORE_PATH=./backend/data/artifacts
+PROJECT_STORE_PATH=./backend/data/projects
+RUN_STORE_PATH=./backend/data/runs
+WORKSPACE_STORE_PATH=./backend/data/workspaces
 CURRENT_STATE_PATH=./backend/data/current_state.txt
 ```
 

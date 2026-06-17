@@ -6,6 +6,8 @@ from app.artifacts.schemas import ArtifactContent
 from app.core.models import Artifact, RunEvent
 from app.orchestration.execution_engine import execute_run
 from app.orchestration.run_manager import RunManager
+from app.workspace.schemas import CommandResult, WorkspaceManifest
+from app.workspace.workspace_manager import WorkspaceManager
 
 router = APIRouter(prefix="/api/runs", tags=["runs"])
 
@@ -18,6 +20,8 @@ async def start_run(payload: RunCreate) -> RunRecord:
         project_id=payload.project_id,
         run_type=payload.run_type,
         allow_ceo_live=payload.allow_ceo_live,
+        allow_file_writes=payload.allow_file_writes,
+        allow_safe_commands=payload.allow_safe_commands,
         max_cost_usd=payload.max_cost_usd,
     )
 
@@ -48,3 +52,33 @@ def get_run_artifact(run_id: str, artifact_id: str) -> ArtifactContent:
     if RunManager().get_run(run_id) is None:
         raise HTTPException(status_code=404, detail="Run not found")
     return ArtifactStore().get_artifact(run_id, artifact_id)
+
+
+@router.get("/{run_id}/workspace/files")
+def get_workspace_files(run_id: str) -> dict:
+    if RunManager().get_run(run_id) is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+    manifest = WorkspaceManager().read_manifest(run_id)
+    return {"run_id": run_id, "files": [entry.model_dump() for entry in manifest.files]}
+
+
+@router.get("/{run_id}/workspace/files/{file_path:path}")
+def get_workspace_file(run_id: str, file_path: str) -> dict:
+    if RunManager().get_run(run_id) is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+    content = WorkspaceManager().read_workspace_file(run_id, file_path)
+    return {"run_id": run_id, "path": file_path, "content": content}
+
+
+@router.get("/{run_id}/workspace/manifest", response_model=WorkspaceManifest)
+def get_workspace_manifest(run_id: str) -> WorkspaceManifest:
+    if RunManager().get_run(run_id) is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+    return WorkspaceManager().read_manifest(run_id)
+
+
+@router.get("/{run_id}/workspace/commands", response_model=list[CommandResult])
+def get_workspace_commands(run_id: str) -> list[CommandResult]:
+    if RunManager().get_run(run_id) is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+    return WorkspaceManager().read_commands(run_id)

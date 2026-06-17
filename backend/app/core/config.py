@@ -33,6 +33,9 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./thehivemind.db"
     vector_store_path: str = "./data/vector_memory"
     artifact_store_path: str = "./backend/data/artifacts"
+    workspace_store_path: str = "./backend/data/workspaces"
+    project_store_path: str = "./backend/data/projects"
+    run_store_path: str = "./backend/data/runs"
     current_state_path: str = "./backend/data/current_state.txt"
     openai_tracking_id: str = ""
 
@@ -70,6 +73,21 @@ class Settings(BaseSettings):
     @property
     def artifact_path(self) -> Path:
         configured = Path(self.artifact_store_path)
+        return configured if configured.is_absolute() else REPO_ROOT / configured
+
+    @property
+    def workspace_path(self) -> Path:
+        configured = Path(self.workspace_store_path)
+        return configured if configured.is_absolute() else REPO_ROOT / configured
+
+    @property
+    def project_path(self) -> Path:
+        configured = Path(self.project_store_path)
+        return configured if configured.is_absolute() else REPO_ROOT / configured
+
+    @property
+    def run_path(self) -> Path:
+        configured = Path(self.run_store_path)
         return configured if configured.is_absolute() else REPO_ROOT / configured
 
     @property

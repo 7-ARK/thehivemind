@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import agents, health, memory, providers, runs, usage
+from app.api import agents, health, memory, projects, providers, runs, usage
 
 app = FastAPI(
     title="TheHiveMind API",
@@ -19,6 +19,7 @@ app.add_middleware(
 
 app.include_router(health.router)
 app.include_router(runs.router)
+app.include_router(projects.router)
 app.include_router(agents.router)
 app.include_router(memory.router)
 app.include_router(providers.router)
@@ -34,6 +35,7 @@ def api_index() -> dict[str, object]:
         "health": "/health",
         "endpoints": {
             "runs": "/api/runs",
+            "projects": "/api/projects",
             "agents": "/api/agents",
             "memory": "/api/memory/summary",
             "providers": "/api/providers/status",

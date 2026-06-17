@@ -3,6 +3,9 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from app.projects.schemas import ProjectWorkspaceSummary
+from app.workspace.schemas import WorkspaceSummary
+
 
 RunMode = Literal["mock", "live"]
 RunStatus = Literal["queued", "planning", "selecting_models", "executing_workers", "reviewing", "running", "completed", "failed"]
@@ -15,6 +18,8 @@ class RunCreate(BaseModel):
     project_id: str | None = Field(default=None, max_length=120)
     run_type: str = Field(default="business_launch_plan", max_length=120)
     allow_ceo_live: bool = False
+    allow_file_writes: bool = False
+    allow_safe_commands: bool = False
     max_cost_usd: float = Field(default=0.25, gt=0, le=5)
 
 
@@ -118,3 +123,6 @@ class RunRecord(BaseModel):
     memory: MemorySummary
     final_output: FinalOutput
     artifacts: list[Artifact] = Field(default_factory=list)
+    workspace: WorkspaceSummary | None = None
+    project_workspace: ProjectWorkspaceSummary | None = None
+    memory_updates: list[str] = Field(default_factory=list)

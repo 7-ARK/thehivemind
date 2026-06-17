@@ -22,6 +22,13 @@ The API will be available at `http://127.0.0.1:8000`.
 - `GET /api/runs/{run_id}/events`
 - `GET /api/runs/{run_id}/artifacts`
 - `GET /api/runs/{run_id}/artifacts/{artifact_id}`
+- `GET /api/projects`
+- `GET /api/projects/{project_id}`
+- `GET /api/projects/{project_id}/state`
+- `GET /api/projects/{project_id}/manifest`
+- `GET /api/projects/{project_id}/files`
+- `GET /api/projects/{project_id}/runs`
+- `GET /api/projects/{project_id}/changes`
 - `GET /api/agents`
 - `GET /api/memory/summary`
 - `GET /api/providers/status`
@@ -41,6 +48,26 @@ curl -X POST http://127.0.0.1:8000/api/runs ^
 ```
 
 Artifacts are written to `backend/data/artifacts/{run_id}/`.
+
+## Persistent Project Workspace
+
+Prototype builds create or update files inside `backend/data/projects/{project_id}/` and save per-run logs under `backend/data/runs/{run_id}/`:
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/runs ^
+  -H "Content-Type: application/json" ^
+  -d "{\"command\":\"Create a simple Greek yogurt order website prototype with files.\",\"mode\":\"mock\",\"project_id\":\"greek-yogurt-test\",\"run_type\":\"prototype_build\",\"allow_file_writes\":true,\"allow_safe_commands\":true,\"allow_ceo_live\":false,\"max_cost_usd\":0.25}"
+```
+
+Continue the same project in a later run:
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/runs ^
+  -H "Content-Type: application/json" ^
+  -d "{\"command\":\"Continue the Greek yogurt website and add a simple order status page.\",\"mode\":\"mock\",\"project_id\":\"greek-yogurt-test\",\"run_type\":\"prototype_build\",\"allow_file_writes\":true,\"allow_safe_commands\":true,\"allow_ceo_live\":false,\"max_cost_usd\":0.25}"
+```
+
+The project workspace blocks `.env`, path traversal, dangerous commands, package installs, Git pushes/resets, and writes outside the approved project directory.
 
 ## Safe Provider Testing
 
