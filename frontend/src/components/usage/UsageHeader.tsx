@@ -50,7 +50,7 @@ export default function UsageHeader({
           Usage &amp; Cost Intelligence
         </h1>
         <p className="text-sm text-[#909296] mt-1 font-sans">
-          Observe provider spend allocations, model router effectiveness, and agent execution logs for TheHiveMind.
+          Observe provider usage, model routing estimates, and agent execution logs. Mock and seeded rows are simulated telemetry, not real API spend.
         </p>
       </div>
 

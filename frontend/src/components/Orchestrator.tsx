@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from "react";
-import { createRun } from "../lib/api";
-import { CreateRunPayload, RunEvent, RunResult } from "../types";
+import { createRun, getProjectChanges, getRunCommands } from "../lib/api";
+import { collectRunCommands, collectRunFiles, FileSummaryItem } from "../lib/runSummary";
+import { CommandResult, CreateRunPayload, ProjectChange, RunEvent, RunResult } from "../types";
 import MarkdownView from "./MarkdownView";
 import {
   AlertTriangle,
@@ -19,12 +20,13 @@ import {
 interface OrchestratorProps {
   onWorkflowCompleted: (projectId?: string, runId?: string) => void;
   onOpenProject: (projectId: string) => void;
+  onOpenRunDetail: (runId: string, projectId?: string) => void;
 }
 
 const EXAMPLE_CREATE = "Create a simple Greek yogurt order website prototype with files.";
 const EXAMPLE_CONTINUE = "Continue the Greek yogurt website and add a simple order status page.";
 
-export default function Orchestrator({ onWorkflowCompleted, onOpenProject }: OrchestratorProps) {
+export default function Orchestrator({ onWorkflowCompleted, onOpenProject, onOpenRunDetail }: OrchestratorProps) {
   const [command, setCommand] = useState(EXAMPLE_CREATE);
   const [projectId, setProjectId] = useState("greek-yogurt-test");
   const [mode, setMode] = useState<CreateRunPayload["mode"]>("mock");
@@ -35,6 +37,8 @@ export default function Orchestrator({ onWorkflowCompleted, onOpenProject }: Orc
   const [maxCostUsd, setMaxCostUsd] = useState("0.25");
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<RunResult | null>(null);
+  const [resultCommands, setResultCommands] = useState<CommandResult[]>([]);
+  const [resultChanges, setResultChanges] = useState<ProjectChange[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   const payload = useMemo<CreateRunPayload>(
@@ -56,9 +60,19 @@ export default function Orchestrator({ onWorkflowCompleted, onOpenProject }: Orc
     setRunning(true);
     setError(null);
     setResult(null);
+    setResultCommands([]);
+    setResultChanges([]);
     try {
       const run = await createRun(payload);
       setResult(run);
+      const [commandsResult, changesResult] = await Promise.allSettled([
+        getRunCommands(run.run_id),
+        run.project_id ? getProjectChanges(run.project_id) : Promise.resolve({ project_id: "", changes: [] }),
+      ]);
+      if (commandsResult.status === "fulfilled") setResultCommands(commandsResult.value);
+      if (changesResult.status === "fulfilled") {
+        setResultChanges(changesResult.value.changes.filter((change) => change.run_id === run.run_id));
+      }
       onWorkflowCompleted(run.project_id ?? payload.project_id ?? undefined, run.run_id);
     } catch (err: any) {
       setError(normalizeError(err?.message));
@@ -67,9 +81,8 @@ export default function Orchestrator({ onWorkflowCompleted, onOpenProject }: Orc
     }
   };
 
-  const filesCreated = result?.project_files_created ?? [];
-  const filesUpdated = result?.project_files_updated ?? [];
-  const commandsRun = result?.commands_run ?? [];
+  const fileSummary = result ? collectRunFiles(result, resultChanges) : { created: [], updated: [] };
+  const commandsRun = result ? collectRunCommands(result, resultCommands) : [];
 
   return (
     <div id="orchestrator" className="space-y-6">
@@ -128,7 +141,7 @@ export default function Orchestrator({ onWorkflowCompleted, onOpenProject }: Orc
                 </select>
               </Field>
 
-              <Field label="Run Type" helper="Prototype builds can create or continue project files.">
+              <Field label="Run Type" helper="prototype_build starts or refreshes project files; continuation continues an existing project workspace.">
                 <select value={runType} onChange={(event) => setRunType(event.target.value as CreateRunPayload["run_type"])} disabled={running} className="control-input">
                   <option value="prototype_build">prototype_build</option>
                   <option value="business_launch_plan">business_launch_plan</option>
@@ -191,12 +204,13 @@ export default function Orchestrator({ onWorkflowCompleted, onOpenProject }: Orc
           <div className="space-y-6">
             <RunResultPanel
               result={result}
-              filesCreated={filesCreated}
-              filesUpdated={filesUpdated}
+              filesCreated={fileSummary.created}
+              filesUpdated={fileSummary.updated}
               commandsRun={commandsRun}
               onOpenProject={() => result.project_id && onOpenProject(result.project_id)}
+              onOpenRunDetail={() => onOpenRunDetail(result.run_id, result.project_id ?? undefined)}
             />
-            <Timeline events={result.events} />
+            <Timeline events={result.events} mode={result.mode} />
             <section className="bg-[#1a1b1e] border border-[#2c2e33] rounded-lg p-5">
               <h3 className="text-xs font-bold text-[#909296] tracking-wider uppercase flex items-center gap-2 mb-3">
                 <FileText className="w-4 h-4 text-[#20c997]" />
@@ -209,8 +223,8 @@ export default function Orchestrator({ onWorkflowCompleted, onOpenProject }: Orc
           </div>
 
           <aside className="space-y-6">
-            <ListCard title="Files Created" items={filesCreated} empty="No project files created." />
-            <ListCard title="Files Updated" items={filesUpdated} empty="No project files updated." />
+            <ListCard title="Files Created" items={fileSummary.created.map(formatFileSummary)} empty="No project files created in this run." />
+            <ListCard title="Files Updated" items={fileSummary.updated.map(formatFileSummary)} empty="No project files updated in this run." />
             <CommandCard commands={commandsRun} />
             <ListCard title="Artifacts" items={result.artifacts.map((artifact) => `${artifact.name} [${artifact.type}]`)} empty="No artifacts returned." />
           </aside>
@@ -267,7 +281,22 @@ function PayloadPreview({ payload }: { payload: CreateRunPayload }) {
   );
 }
 
-function RunResultPanel({ result, filesCreated, filesUpdated, commandsRun, onOpenProject }: { result: RunResult; filesCreated: string[]; filesUpdated: string[]; commandsRun: unknown[]; onOpenProject: () => void }) {
+function RunResultPanel({
+  result,
+  filesCreated,
+  filesUpdated,
+  commandsRun,
+  onOpenProject,
+  onOpenRunDetail,
+}: {
+  result: RunResult;
+  filesCreated: FileSummaryItem[];
+  filesUpdated: FileSummaryItem[];
+  commandsRun: CommandResult[];
+  onOpenProject: () => void;
+  onOpenRunDetail: () => void;
+}) {
+  const costLabel = result.mode === "mock" ? "Estimated if live" : "Cost";
   return (
     <section className="bg-[#1a1b1e] border border-[#2c2e33] rounded-lg p-5">
       <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
@@ -278,19 +307,26 @@ function RunResultPanel({ result, filesCreated, filesUpdated, commandsRun, onOpe
           </h3>
           <p className="text-xs text-[#909296] mt-1">{result.final_output.summary}</p>
         </div>
-        {result.project_id && (
-          <button onClick={onOpenProject} className="bg-[#25262b] hover:bg-[#2c2e33] border border-[#2c2e33] text-[#20c997] px-3 py-2 rounded text-xs font-bold flex items-center gap-2">
-            <Database className="w-4 h-4" />
-            View Project Workspace
+        <div className="flex flex-wrap gap-2">
+          <button onClick={onOpenRunDetail} className="bg-[#20c997] hover:bg-[#1db184] text-[#141517] px-3 py-2 rounded text-xs font-bold flex items-center gap-2">
+            <Terminal className="w-4 h-4" />
+            View Run Details
           </button>
-        )}
+          {result.project_id && (
+            <button onClick={onOpenProject} className="bg-[#25262b] hover:bg-[#2c2e33] border border-[#2c2e33] text-[#20c997] px-3 py-2 rounded text-xs font-bold flex items-center gap-2">
+              <Database className="w-4 h-4" />
+              View Project Workspace
+            </button>
+          )}
+        </div>
       </div>
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-4">
         <Metric label="Run ID" value={result.run_id.slice(0, 8)} />
         <Metric label="Status" value={result.status} />
         <Metric label="Mode" value={result.mode} />
         <Metric label="Run Type" value={result.run_type} />
-        <Metric label="Cost" value={`$${result.metrics.total_estimated_cost_usd.toFixed(6)}`} />
+        <Metric label={costLabel} value={`$${result.metrics.total_estimated_cost_usd.toFixed(6)}`} />
+        {result.mode === "mock" && <Metric label="Actual API Cost" value="$0.00" />}
         <Metric label="Agents" value={String(result.metrics.agents_used)} />
         <Metric label="Created" value={String(filesCreated.length)} />
         <Metric label="Updated" value={String(filesUpdated.length)} />
@@ -301,7 +337,7 @@ function RunResultPanel({ result, filesCreated, filesUpdated, commandsRun, onOpe
   );
 }
 
-function Timeline({ events }: { events: RunEvent[] }) {
+function Timeline({ events, mode }: { events: RunEvent[]; mode: RunResult["mode"] }) {
   return (
     <section className="bg-[#1a1b1e] border border-[#2c2e33] rounded-lg p-5">
       <h3 className="text-xs font-bold text-[#909296] tracking-wider uppercase mb-4 flex items-center gap-2">
@@ -318,9 +354,19 @@ function Timeline({ events }: { events: RunEvent[] }) {
               </div>
               <div className="flex flex-wrap gap-2 text-[10px] font-mono text-[#909296]">
                 <span>{event.status}</span>
-                <span>{event.provider ?? "provider n/a"}</span>
-                <span>{event.model_used}</span>
-                <span className="text-[#fab005]">${event.estimated_cost_usd.toFixed(6)}</span>
+                {mode === "mock" ? (
+                  <>
+                    <span>Actual provider: mock</span>
+                    <span>Planned model: {event.model_used}</span>
+                    <span className="text-[#fab005]">sim ${event.estimated_cost_usd.toFixed(6)}</span>
+                  </>
+                ) : (
+                  <>
+                    <span>{event.provider ?? "provider n/a"}</span>
+                    <span>{event.model_used}</span>
+                    <span className="text-[#fab005]">${event.estimated_cost_usd.toFixed(6)}</span>
+                  </>
+                )}
               </div>
             </div>
             <p className="text-xs text-[#909296] mt-2">{event.action_summary}</p>
@@ -378,6 +424,11 @@ function CommandCard({ commands }: { commands: RunResult["commands_run"] }) {
       )}
     </section>
   );
+}
+
+function formatFileSummary(item: FileSummaryItem): string {
+  const detail = item.summary ? ` - ${item.summary}` : "";
+  return `${item.path}${detail}`;
 }
 
 function WarningCard({ children }: { children: React.ReactNode }) {

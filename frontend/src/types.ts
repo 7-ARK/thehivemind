@@ -250,6 +250,20 @@ export interface RunUsageSummary {
   models_used?: string[];
 }
 
+export interface RunWorkspaceSummary {
+  root: string;
+  files_created: string[];
+  files_edited: string[];
+  commands_run: CommandResult[];
+  command_success?: boolean | null;
+}
+
+export interface RunProjectWorkspaceSummary extends RunWorkspaceSummary {
+  project_id: string;
+  state_path?: string;
+  manifest_path?: string;
+}
+
 export interface RunResult {
   run_id: string;
   command: string;
@@ -278,6 +292,9 @@ export interface RunResult {
     generated_artifacts: string[];
   };
   artifacts: ArtifactRecord[];
+  workspace?: RunWorkspaceSummary | null;
+  project_workspace?: RunProjectWorkspaceSummary | null;
+  models_used?: string[];
   project_files_created: string[];
   project_files_updated: string[];
   commands_run: CommandResult[];

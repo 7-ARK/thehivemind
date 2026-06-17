@@ -8,7 +8,11 @@ from app.workspace.schemas import FileManifestEntry
 class FileBuilderAgent(BaseAgent):
     def build_project_greek_yogurt_site(self, project_id: str, run_id: str, command: str) -> list[ProjectFileWriteResult]:
         writer = ProjectWorkspaceManager()
-        files = self._project_files(include_status_page=self._needs_status_page(command))
+        existing_paths = {item.path for item in writer.get_project_manifest(project_id).files}
+        files = self._project_files(
+            include_status_page=self._needs_status_page(command, existing_paths),
+            include_faq_section=self._needs_faq_section(command, existing_paths),
+        )
         entries = []
         for path, content in files.items():
             entries.append(
@@ -23,22 +27,32 @@ class FileBuilderAgent(BaseAgent):
             )
         return entries
 
-    def _needs_status_page(self, command: str) -> bool:
+    def _needs_status_page(self, command: str, existing_paths: set[str] | None = None) -> bool:
         normalized = command.lower()
-        return "status" in normalized or "continue" in normalized
+        existing = existing_paths or set()
+        return "status" in normalized or "continue" in normalized or "website/templates/status.html" in existing or "website/data/order_statuses.json" in existing
+
+    def _needs_faq_section(self, command: str, existing_paths: set[str] | None = None) -> bool:
+        normalized = command.lower()
+        existing = existing_paths or set()
+        return "faq" in normalized or "frequently asked" in normalized or "website/data/faqs.json" in existing
 
     def _summary_for(self, path: str, command: str) -> str:
         if "status" in path:
             return "Order status tracking data for the Greek yogurt website."
         if path.endswith("app.py") and self._needs_status_page(command):
             return "Standard-library Greek yogurt order website backend with order intake and status page routes."
+        if path.endswith("index.html") and self._needs_faq_section(command):
+            return "Greek yogurt homepage with a small FAQ section for ordering, delivery, and manual approval."
         if path.endswith("index.html") and self._needs_status_page(command):
             return "Greek yogurt homepage and order form with a link to the order status page."
+        if path.endswith("faqs.json"):
+            return "FAQ content for the Greek yogurt website."
         if path.endswith("status.html"):
             return "Simple order status page for manually reviewed Greek yogurt orders."
         return f"Persistent Greek yogurt website project file {path}."
 
-    def _project_files(self, *, include_status_page: bool) -> dict[str, str]:
+    def _project_files(self, *, include_status_page: bool, include_faq_section: bool = False) -> dict[str, str]:
         files = {
             "website/README.md": """# Greek Yogurt Order Website Prototype
 
@@ -63,6 +77,7 @@ Then open `http://127.0.0.1:8080`.
 
 - Replace fake data with a real database.
 - Add admin approval screens.
+- Keep FAQ answers aligned with final pricing, delivery radius, and storage guidance.
 - Add WhatsApp handoff copy.
 - Verify all pricing, delivery, nutrition, and legal claims before public use.
 """,
@@ -85,7 +100,10 @@ Then open `http://127.0.0.1:8080`.
   }
 ]
 """,
-            "website/templates/index.html": self._index_html(include_status_page=include_status_page),
+            "website/templates/index.html": self._index_html(
+                include_status_page=include_status_page,
+                include_faq_section=include_faq_section,
+            ),
         }
         if include_status_page:
             files["website/templates/status.html"] = self._status_html()
@@ -99,6 +117,22 @@ Then open `http://127.0.0.1:8080`.
     "order_id": "GY-1002",
     "status": "follow_up",
     "message": "We need to confirm your delivery slot before preparing the batch."
+  }
+]
+"""
+        if include_faq_section:
+            files["website/data/faqs.json"] = """[
+  {
+    "question": "Can I place a real order from this prototype?",
+    "answer": "No. This local prototype only demonstrates the flow; every order needs manual human confirmation."
+  },
+  {
+    "question": "Are prices and delivery areas final?",
+    "answer": "No. Pricing, delivery radius, and product claims must be approved before public use."
+  },
+  {
+    "question": "Does the site process payments?",
+    "answer": "No. Payments, WhatsApp messages, and external actions are intentionally not connected."
   }
 ]
 """
@@ -194,8 +228,16 @@ if __name__ == "__main__":
     main()
 """
 
-    def _index_html(self, *, include_status_page: bool) -> str:
+    def _index_html(self, *, include_status_page: bool, include_faq_section: bool = False) -> str:
         status_link = "<p><a href=\"/status?order_id=GY-1001\">Check sample order status</a></p>" if include_status_page else ""
+        faq_section = """
+      <section class="faq">
+        <h2>FAQ</h2>
+        <details open><summary>Can I place a real order from this prototype?</summary><p>No. Orders stay manual and must be confirmed by a human.</p></details>
+        <details><summary>Are prices and delivery areas final?</summary><p>No. Pricing, delivery radius, and product claims need approval before launch.</p></details>
+        <details><summary>Does the site process payments?</summary><p>No. Payments, WhatsApp messages, and external actions are intentionally not connected.</p></details>
+      </section>
+""" if include_faq_section else ""
         return f"""<!doctype html>
 <html lang="en">
   <head>
@@ -207,10 +249,11 @@ if __name__ == "__main__":
       main {{ max-width: 880px; margin: 0 auto; padding: 40px 20px; }}
       .hero {{ background: white; border: 1px solid #d9e2dc; padding: 28px; border-radius: 8px; }}
       .products {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin: 20px 0; }}
-      .product, form {{ background: white; border: 1px solid #d9e2dc; padding: 16px; border-radius: 8px; }}
+      .product, form, .faq {{ background: white; border: 1px solid #d9e2dc; padding: 16px; border-radius: 8px; }}
       label {{ display: block; margin-top: 12px; font-weight: 700; }}
       input, select, button {{ width: 100%; padding: 10px; margin-top: 6px; box-sizing: border-box; }}
       button {{ background: #2f855a; color: white; border: 0; border-radius: 6px; cursor: pointer; }}
+      details {{ margin-top: 10px; }}
     </style>
   </head>
   <body>
@@ -226,6 +269,7 @@ if __name__ == "__main__":
         <article class="product"><h2>Berry Crunch</h2><p>Berry compote, granola, chilled yogurt.</p></article>
         <article class="product"><h2>Desi Mango</h2><p>Mango layer, plain yogurt, cardamom hint.</p></article>
       </section>
+{faq_section}
       <form method="post" action="/order">
         <h2>Request an Order</h2>
         <label>Name<input name="name" required /></label>

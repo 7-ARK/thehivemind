@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 from app.projects.project_manifest import utc_now
@@ -53,6 +54,7 @@ def update_project_state(
     created = "\n".join(f"- {item}" for item in files_created) or "- None"
     edited = "\n".join(f"- {item}" for item in files_edited) or "- None"
     steps = "\n".join(f"- {item}" for item in next_steps) or "- Review the project files."
+    current_files = _current_project_files(path)
     content = f"""# Project State
 
 ## Project
@@ -64,12 +66,15 @@ def update_project_state(
 ## Current Status
 {status}
 
-## What Has Been Built
-Created files:
+## Changes In Last Run
+Created in this run:
 {created}
 
-Updated files:
+Updated in this run:
 {edited}
+
+## Current Project Files
+{current_files}
 
 ## Important Decisions
 - Project files live in `backend/data/projects/{project_id}/`.
@@ -91,3 +96,15 @@ Updated files:
 """
     path.write_text(content, encoding="utf-8")
     return content
+
+
+def _current_project_files(path: Path) -> str:
+    manifest_path = path.parent / "manifest.json"
+    if not manifest_path.exists():
+        return "- None recorded yet"
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return "- Manifest unavailable"
+    files = sorted(item.get("path", "") for item in manifest.get("files", []) if item.get("path"))
+    return "\n".join(f"- {item}" for item in files[:12]) or "- None recorded yet"

@@ -93,7 +93,7 @@ class ExecutionEngine:
         started_at = datetime.now(UTC)
         max_cost = min(max_cost_usd or self.settings.max_cost_per_run_usd, self.settings.max_cost_per_run_usd)
         memory = retrieve_memory(command)
-        if run_type == "prototype_build":
+        if run_type in {"prototype_build", "continuation"}:
             return await self._execute_prototype_build(
                 command=command,
                 mode=mode,
@@ -358,7 +358,7 @@ class ExecutionEngine:
         memory,
     ) -> RunRecord:
         if not allow_file_writes:
-            raise HTTPException(status_code=403, detail="prototype_build requires allow_file_writes=true.")
+            raise HTTPException(status_code=403, detail=f"{run_type} requires allow_file_writes=true.")
 
         active_project_id = project_id or "default-project"
         project_manager = ProjectWorkspaceManager(self.settings)

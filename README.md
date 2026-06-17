@@ -184,6 +184,18 @@ http://localhost:3001
 
 Open the `Project Workspace` tab and load `greek-yogurt-test`.
 
+## Run Detail Viewer
+
+Completed runs can be inspected from the Command Console with `View Run Details`, or from the Project Workspace run history with `View`. The focused viewer combines run metadata, timeline events, artifacts, file changes, command results, usage estimates, model/provider traces, and the final report.
+
+The viewer uses these backend endpoints:
+
+- `GET /api/runs/{run_id}`
+- `GET /api/runs/{run_id}/events`
+- `GET /api/runs/{run_id}/artifacts`
+- `GET /api/runs/{run_id}/commands`
+- `GET /api/projects/{project_id}/changes`
+
 Check usage:
 
 ```bash

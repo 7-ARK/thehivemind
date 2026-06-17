@@ -387,6 +387,14 @@ export async function createRun(payload: CreateRunPayload): Promise<RunResult> {
   });
 }
 
+export async function getRun(runId: string): Promise<RunResult> {
+  return request(`/api/runs/${encodeURIComponent(runId)}`);
+}
+
+export async function getRunEvents(runId: string): Promise<RunResult["events"]> {
+  return request(`/api/runs/${encodeURIComponent(runId)}/events`);
+}
+
 export async function getProject(projectId: string): Promise<ProjectWorkspace> {
   return request(`/api/projects/${encodeURIComponent(projectId)}`);
 }

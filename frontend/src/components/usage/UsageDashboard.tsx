@@ -200,6 +200,10 @@ export default function UsageDashboard({ onRefreshTrigger = 0 }: UsageDashboardP
           {/* Main cost control guardrail */}
           {budget && <BudgetHealthCard budget={budget} />}
 
+          <div className="bg-[#20c997]/10 border border-[#20c997]/20 text-[#20c997] rounded-lg px-4 py-3 text-xs">
+            Usage rows can include mock or seeded telemetry. Mock runs show estimated live-equivalent cost for planning, while actual API cost remains $0.00.
+          </div>
+
           {/* High level counters */}
           {summary && <UsageKpiGrid summary={summary} />}
 

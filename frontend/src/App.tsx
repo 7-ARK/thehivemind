@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import UsageDashboard from "./components/usage/UsageDashboard";
 import Orchestrator from "./components/Orchestrator";
 import ProjectWorkspacePanel from "./components/projects/ProjectWorkspacePanel";
+import RunDetailViewer from "./components/runs/RunDetailViewer";
 import { getHealth, getProviderStatus } from "./lib/api";
 import {
   LayoutDashboard,
@@ -31,6 +32,7 @@ export default function App() {
   const [workerModel, setWorkerModel] = useState("gpt-5.4-nano");
   const [activeProjectId, setActiveProjectId] = useState("greek-yogurt-test");
   const [projectRefreshTrigger, setProjectRefreshTrigger] = useState(0);
+  const [selectedRunDetail, setSelectedRunDetail] = useState<{ runId: string; projectId?: string } | null>(null);
 
   useEffect(() => {
     Promise.all([getHealth(), getProviderStatus()])
@@ -59,6 +61,10 @@ export default function App() {
     setActiveProjectId(projectId);
     setProjectRefreshTrigger((prev) => prev + 1);
     setActiveTab("projects");
+  };
+
+  const handleOpenRunDetail = (runId: string, projectId?: string) => {
+    setSelectedRunDetail({ runId, projectId });
   };
 
   return (
@@ -272,7 +278,11 @@ export default function App() {
         {/* 3. SCROLLABLE CONTENTS CONTAINER */}
         <main className="flex-1 p-6 overflow-y-auto w-full max-w-7xl mx-auto">
           {activeTab === "orchestrator" && (
-            <Orchestrator onWorkflowCompleted={handleWorkflowCompleted} onOpenProject={handleOpenProject} />
+            <Orchestrator
+              onWorkflowCompleted={handleWorkflowCompleted}
+              onOpenProject={handleOpenProject}
+              onOpenRunDetail={handleOpenRunDetail}
+            />
           )}
 
           {activeTab === "reports" && (
@@ -280,7 +290,11 @@ export default function App() {
           )}
 
           {activeTab === "projects" && (
-            <ProjectWorkspacePanel initialProjectId={activeProjectId} refreshTrigger={projectRefreshTrigger} />
+            <ProjectWorkspacePanel
+              initialProjectId={activeProjectId}
+              refreshTrigger={projectRefreshTrigger}
+              onOpenRunDetail={handleOpenRunDetail}
+            />
           )}
 
           {activeTab === "agents" && (
@@ -299,51 +313,57 @@ export default function App() {
                 {[
                   {
                     name: "CEO Agent",
-                    desc: "Reviews corporate prompts, formulates strategic plans, coordinates cluster parameters.",
+                    desc: "Plans controlled runs and delegates work. Live GPT-5.5 remains blocked unless explicitly allowed.",
                     model: "GPT-5.5 Flex",
                     provider: "OpenAI",
                     limits: "Weighted high priority - max 128k input context limit",
                     role: "Master Planner Unit",
+                    status: "Active - mock by default",
                   },
                   {
                     name: "Model Selector Agent",
-                    desc: "Analyzes prompt constraints, dynamically routes requests to the cheapest taskforce.",
+                    desc: "Routes tasks to configured model tiers and records planned provider/model choices.",
                     model: "Gemini 3.5 Flash",
                     provider: "Gemini",
-                    limits: "Low latency, fast turnarounds · 1M context scope",
+                    limits: "Low latency, fast turnarounds / 1M context scope",
                     role: "Routing and Mapping Unit",
+                    status: "Active - simulated in mock",
                   },
                   {
                     name: "Research Agent",
-                    desc: "Executes parallel web grounding queries and extracts academic corpus elements.",
+                    desc: "Creates conservative research briefs. Web search is disabled by default.",
                     model: "Gemini 3.1 Flash-Lite",
                     provider: "Gemini",
-                    limits: "Search-integrated operations · $0.03 average search charge",
+                    limits: "Search-integrated operations / disabled by default",
                     role: "Web Grounding Unit",
+                    status: "Active - search disabled",
                   },
                   {
                     name: "Coding Agent",
-                    desc: "Deploys local configuration blueprints and syntax validation tests.",
+                    desc: "Future specialized coding worker. Current file creation is handled by the File Builder Agent.",
                     model: "Qwen 2.5 Coder",
                     provider: "OpenRouter",
                     limits: "High instruction fidelity on structured JSON generation",
                     role: "Engineering Unit",
+                    status: "Planned",
                   },
                   {
                     name: "Content Agent",
-                    desc: "Writes localized marketing transcripts and executive highlights.",
+                    desc: "Drafts controlled copy, positioning, and prototype content inputs.",
                     model: "GPT-5.4 Nano",
                     provider: "OpenAI",
                     limits: "Efficient non-search worker token model",
                     role: "Copywriting Unit",
+                    status: "Active - simulated in mock",
                   },
                   {
                     name: "QA Agent",
-                    desc: "Verifies formatting layouts, syntax rules, and checks logic checks.",
+                    desc: "Reviews generated outputs, safety constraints, and validation results.",
                     model: "GPT-5.4 Nano",
                     provider: "OpenAI",
                     limits: "Validates compliance constraints on outputs",
                     role: "Quality Assurance Unit",
+                    status: "Active - simulated in mock",
                   }
                 ].map((ag, idx) => (
                   <div key={idx} className="bg-[#1a1b1e] border border-[#2c2e33] p-5 rounded-lg space-y-4">
@@ -353,6 +373,7 @@ export default function App() {
                           {ag.role}
                         </span>
                         <h3 className="text-sm font-semibold text-[#e9ecef] mt-0.5">{ag.name}</h3>
+                        <p className="text-[10px] text-[#fab005] font-mono mt-1">{ag.status}</p>
                       </div>
                       <span className="text-[10px] bg-[#2c2e33] text-[#20c997] border border-[#2c2e33] px-2 py-0.5 rounded font-mono font-bold">
                         {ag.model}
@@ -379,13 +400,13 @@ export default function App() {
                 <div className="absolute right-0 top-0 translate-x-12 -translate-y-12 w-24 h-24 rounded-full bg-[#20c997]/10 blur-[40px] pointer-events-none" />
                 <h3 className="text-sm font-bold text-[#20c997] flex items-center gap-1.5 font-mono uppercase mb-2">
                   <Brain className="w-4 h-4 animate-pulse text-[#20c997]" />
-                  Context Memory Governance
+                  Memory UI Placeholder
                 </h3>
                 <p className="text-xs text-[#e9ecef] leading-relaxed font-sans font-medium">
-                  “Agents do not read all memory. They retrieve only the context needed for the active command.”
+                  Agents retrieve only the context needed for the active command.
                 </p>
                 <p className="text-[11px] text-[#909296] font-mono mt-2 leading-relaxed">
-                  In order to optimize token efficiency and prevent distraction, our dual-vector indexing database (Chroma/SQLite) limits prompt ingestion to dynamic K-snippets.
+                  This panel is a placeholder until the real memory browser is connected.
                 </p>
               </div>
 
@@ -394,10 +415,10 @@ export default function App() {
                 
                 <div className="space-y-2 text-xs">
                   {[
-                    "Core corporate operating benchmarks and business constraints",
-                    "Previous 15-turn task outcomes and next actions tables",
-                    "Greek Yogurt sector margins, competitors, and marketing rules",
-                    "Rust high precision trading routines and rate limit specifications",
+                    "Greek yogurt website prototype created",
+                    "Order status page added in the persistent project workspace",
+                    "Safe command validation passed with python -m py_compile",
+                    "No external actions, deployments, or package installs performed",
                   ].map((doc, idx) => (
                     <div key={idx} className="bg-[#141517] border border-[#2c2e33] p-3 rounded flex items-center justify-between text-[#e9ecef]">
                       <div className="flex items-center gap-2.5">
@@ -415,6 +436,18 @@ export default function App() {
           )}
         </main>
       </div>
+
+      {selectedRunDetail && (
+        <RunDetailViewer
+          runId={selectedRunDetail.runId}
+          projectId={selectedRunDetail.projectId}
+          onClose={() => setSelectedRunDetail(null)}
+          onOpenProject={(projectId) => {
+            setSelectedRunDetail(null);
+            handleOpenProject(projectId);
+          }}
+        />
+      )}
 
     </div>
   );

@@ -23,9 +23,10 @@ import ProjectStateCard from "./ProjectStateCard";
 interface ProjectWorkspacePanelProps {
   initialProjectId?: string;
   refreshTrigger?: number;
+  onOpenRunDetail?: (runId: string, projectId?: string) => void;
 }
 
-export default function ProjectWorkspacePanel({ initialProjectId = "greek-yogurt-test", refreshTrigger = 0 }: ProjectWorkspacePanelProps) {
+export default function ProjectWorkspacePanel({ initialProjectId = "greek-yogurt-test", refreshTrigger = 0, onOpenRunDetail }: ProjectWorkspacePanelProps) {
   const [projectId, setProjectId] = useState(initialProjectId);
   const [loadedProjectId, setLoadedProjectId] = useState(initialProjectId);
   const [stateContent, setStateContent] = useState("");
@@ -157,7 +158,7 @@ export default function ProjectWorkspacePanel({ initialProjectId = "greek-yogurt
         </div>
       )}
 
-      <ProjectStateCard content={stateContent} loading={loading} />
+      <ProjectStateCard content={stateContent} loading={loading} files={files} />
 
       <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-6">
         <ProjectFileTree files={files} selectedPath={selectedPath} onSelect={setSelectedPath} />
@@ -167,7 +168,12 @@ export default function ProjectWorkspacePanel({ initialProjectId = "greek-yogurt
       <ProjectManifestTable files={manifest?.files ?? []} />
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-        <ProjectRunHistory runs={runs} selectedRunId={selectedRunId} onSelect={setSelectedRunId} />
+        <ProjectRunHistory
+          runs={runs}
+          selectedRunId={selectedRunId}
+          onSelect={setSelectedRunId}
+          onOpenRunDetail={(runId) => onOpenRunDetail?.(runId, loadedProjectId)}
+        />
         <ProjectChangeLog changes={changes} />
         <ProjectCommandLog commands={commands} />
         <ProjectArtifactList artifacts={artifacts} />

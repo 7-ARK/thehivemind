@@ -9,7 +9,11 @@ from app.artifacts.schemas import ArtifactContent
 from app.core.models import Artifact, RunEvent
 from app.orchestration.execution_engine import execute_run
 from app.orchestration.run_manager import RunManager
+from app.projects.project_diff import read_file_changes
+from app.projects.project_workspace import ProjectWorkspaceManager
+from app.projects.schemas import ProjectWorkspaceSummary
 from app.workspace.schemas import CommandResult, WorkspaceManifest
+from app.workspace.schemas import WorkspaceSummary
 from app.workspace.workspace_manager import WorkspaceManager
 
 router = APIRouter(prefix="/api/runs", tags=["runs"])
@@ -34,7 +38,7 @@ def get_run(run_id: str) -> RunRecord:
     run = RunManager().get_run(run_id)
     if run is None:
         raise HTTPException(status_code=404, detail="Run not found")
-    return run
+    return _hydrate_run_summary(run)
 
 
 @router.get("/{run_id}/events", response_model=list[RunEvent])
@@ -98,3 +102,87 @@ def get_run_commands(run_id: str) -> list[CommandResult]:
     if run_commands_path.exists():
         return [CommandResult.model_validate(item) for item in json.loads(run_commands_path.read_text(encoding="utf-8"))]
     return WorkspaceManager().read_commands(run_id)
+
+
+def _hydrate_run_summary(run: RunRecord) -> RunRecord:
+    """Repair summary fields from run logs for older/stale stored payloads."""
+    settings = get_settings()
+    artifacts = run.artifacts or ArtifactStore(settings).list_artifacts(run.run_id)
+    changes = read_file_changes(run.run_id, settings)
+    commands = _load_commands_from_record_or_logs(run)
+
+    created = [change.path for change in changes if change.operation == "created"]
+    updated = [change.path for change in changes if change.operation == "updated"]
+    if not created:
+        created = _unique_paths(run.project_files_created or (run.workspace.files_created if run.workspace else []))
+    if not updated:
+        updated = _unique_paths(run.project_files_updated or (run.workspace.files_edited if run.workspace else []))
+    if not created and not updated:
+        artifact_paths = [artifact.name for artifact in artifacts if artifact.type == "project_file"]
+        updated = _unique_paths(artifact_paths)
+
+    commands_payload = [command.model_dump() for command in commands]
+    root = ProjectWorkspaceManager(settings).public_root(run.project_id) if run.project_id else f"backend/data/runs/{run.run_id}"
+    workspace = run.workspace or WorkspaceSummary(root=root)
+    workspace.files_created = workspace.files_created or created
+    workspace.files_edited = workspace.files_edited or updated
+    workspace.commands_run = workspace.commands_run or commands
+    workspace.command_success = workspace.command_success if workspace.command_success is not None else _commands_success(commands)
+
+    project_workspace = run.project_workspace
+    if run.project_id:
+        project_workspace = project_workspace or ProjectWorkspaceSummary(project_id=run.project_id, root=root)
+        project_workspace.files_created = project_workspace.files_created or created
+        project_workspace.files_edited = project_workspace.files_edited or updated
+        project_workspace.commands_run = project_workspace.commands_run or commands_payload
+        project_workspace.command_success = project_workspace.command_success if project_workspace.command_success is not None else _commands_success(commands)
+
+    usage_summary = run.usage_summary or {
+        "estimated_cost_usd": run.metrics.total_estimated_cost_usd,
+        "estimated_tokens": run.metrics.total_estimated_tokens,
+        "agents_used": run.metrics.agents_used,
+        "models_used": sorted({event.model_used for event in run.events}),
+    }
+
+    return run.model_copy(
+        update={
+            "artifacts": artifacts,
+            "workspace": workspace,
+            "project_workspace": project_workspace,
+            "models_used": run.models_used or sorted({event.model_used for event in run.events}),
+            "project_files_created": run.project_files_created or created,
+            "project_files_updated": run.project_files_updated or updated,
+            "commands_run": run.commands_run or commands_payload,
+            "usage_summary": usage_summary,
+        }
+    )
+
+
+def _load_commands_from_record_or_logs(run: RunRecord) -> list[CommandResult]:
+    if run.commands_run:
+        return [CommandResult.model_validate(item) for item in run.commands_run]
+    if run.workspace and run.workspace.commands_run:
+        return run.workspace.commands_run
+    run_commands_path = get_settings().run_path / run.run_id / "commands.json"
+    if run_commands_path.exists():
+        return [CommandResult.model_validate(item) for item in json.loads(run_commands_path.read_text(encoding="utf-8"))]
+    try:
+        return WorkspaceManager().read_commands(run.run_id)
+    except Exception:
+        return []
+
+
+def _commands_success(commands: list[CommandResult]) -> bool | None:
+    if not commands:
+        return None
+    return all(command.allowed and command.exit_code == 0 for command in commands)
+
+
+def _unique_paths(paths: list[str]) -> list[str]:
+    seen = set()
+    result = []
+    for path in paths:
+        if path and path not in seen:
+            seen.add(path)
+            result.append(path)
+    return result

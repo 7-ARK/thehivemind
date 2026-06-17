@@ -26,9 +26,9 @@ export default function UsageKpiGrid({ summary }: UsageKpiGridProps) {
 
   const kpis = [
     {
-      label: "Accrued Spend",
+      label: "Recorded / Sim Spend",
       value: `$${summary.totalCost.toFixed(4)}`,
-      desc: "Cumulative routing costs",
+      desc: "Actual or simulated routing cost",
       trend: "5.2% under forecast",
       trendUp: false,
       color: "text-[#fab005] border-[#2c2e33] bg-[#fab005]/5",
