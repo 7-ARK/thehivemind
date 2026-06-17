@@ -32,6 +32,9 @@ class Settings(BaseSettings):
 
     database_url: str = "sqlite:///./thehivemind.db"
     vector_store_path: str = "./data/vector_memory"
+    artifact_store_path: str = "./backend/data/artifacts"
+    current_state_path: str = "./backend/data/current_state.txt"
+    openai_tracking_id: str = ""
 
     max_input_tokens_per_call: int = 4000
     max_output_tokens_per_call: int = 500
@@ -62,6 +65,16 @@ class Settings(BaseSettings):
     @property
     def vector_path(self) -> Path:
         configured = Path(self.vector_store_path)
+        return configured if configured.is_absolute() else REPO_ROOT / configured
+
+    @property
+    def artifact_path(self) -> Path:
+        configured = Path(self.artifact_store_path)
+        return configured if configured.is_absolute() else REPO_ROOT / configured
+
+    @property
+    def state_path(self) -> Path:
+        configured = Path(self.current_state_path)
         return configured if configured.is_absolute() else REPO_ROOT / configured
 
     def is_live_allowed(self) -> bool:

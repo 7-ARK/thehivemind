@@ -11,6 +11,8 @@ export default defineConfig({
     },
   },
   server: {
+    port: 3001,
+    strictPort: true,
     hmr: process.env.DISABLE_HMR !== "true",
     watch: process.env.DISABLE_HMR === "true" ? null : {},
   },

@@ -11,15 +11,18 @@ Most agent demos hide the actual operating system: who planned, which model was 
 ## Tech Stack
 
 - Backend: Python, FastAPI, SQLite
-- Frontend: Next.js, TypeScript, Tailwind CSS
+- Frontend: Vite, React, TypeScript, Tailwind CSS
 - Memory: local core memory, current state, and JSON text-chunk retrieval placeholder
 - Providers: OpenAI, Google Gemini, OpenRouter, and mock provider interfaces
 - Default execution: mock mode
 
 ## Current MVP Features
 
-- `POST /api/runs` starts a mock multi-agent run.
+- `POST /api/runs` starts a controlled Run Engine v1 workflow.
 - `GET /api/runs/{run_id}` fetches persisted run details from SQLite.
+- `GET /api/runs/{run_id}/events` fetches timeline events.
+- `GET /api/runs/{run_id}/artifacts` fetches artifact metadata.
+- `GET /api/runs/{run_id}/artifacts/{artifact_id}` fetches one saved artifact.
 - `GET /api/agents` returns the agent roster and assigned models.
 - `GET /api/memory/summary` returns core memory, current state, and retrieved snippets.
 - Dashboard renders command input, timeline, agents, task graph, metrics, memory, and final output.
@@ -30,7 +33,7 @@ Most agent demos hide the actual operating system: who planned, which model was 
 
 The current flow is:
 
-`Command -> CEO Agent -> Model Selector -> Research/Coding/Content Workers -> QA Agent -> Final Output`
+`Command -> CEO Agent -> Model Selector -> Research/Content/Operations Workers -> QA Agent -> Final Output -> Artifacts`
 
 The CEO agent owns the plan. The model selector chooses a sensible model tier for each task. Worker agents produce task-specific outputs. QA reviews the package before final assembly. Memory retrieval provides only relevant context instead of loading everything into every prompt.
 
@@ -39,8 +42,8 @@ The CEO agent owns the plan. The model selector chooses a sensible model tier fo
 - CEO Agent: receives the command, creates a plan, and delegates.
 - Model Selector Agent: chooses the model for each work type.
 - Research Agent: handles search-heavy and market/context tasks.
-- Coding Agent: maps the plan into technical systems and implementation tasks.
 - Content Agent: drafts messaging, reports, and user-facing artifacts.
+- Operations Agent: maps order flow, manual approvals, and launch operations.
 - QA Agent: checks completeness, contradictions, and readiness.
 
 ## Memory And RAG
@@ -85,7 +88,21 @@ npm install
 npm run dev
 ```
 
-Frontend URL: `http://localhost:3000`
+The Vite frontend is configured to use port `3001` with strict port binding.
+
+Frontend URL: `http://localhost:3001`
+
+## First Real Controlled Run
+
+Run Engine v1 creates a sequential mock workflow, saved artifacts, memory updates, and usage logs without making live provider calls:
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/runs ^
+  -H "Content-Type: application/json" ^
+  -d "{\"command\":\"Create a launch plan for a Greek yogurt business in Pakistan, excluding supplier sourcing and physical yogurt production.\",\"mode\":\"mock\",\"project_id\":\"greek-yogurt-test\",\"run_type\":\"business_launch_plan\",\"allow_ceo_live\":false,\"max_cost_usd\":0.25}"
+```
+
+Artifacts are saved under `backend/data/artifacts/{run_id}/`.
 
 ## Environment Variables
 
@@ -95,10 +112,13 @@ Copy `.env.example` to `.env` if needed. The repository includes a local placeho
 APP_ENV=development
 MOCK_MODE=true
 OPENAI_API_KEY=
+OPENAI_TRACKING_ID=
 GOOGLE_API_KEY=
 OPENROUTER_API_KEY=
 DATABASE_URL=sqlite:///./thehivemind.db
 VECTOR_STORE_PATH=./data/vector_memory
+ARTIFACT_STORE_PATH=./backend/data/artifacts
+CURRENT_STATE_PATH=./backend/data/current_state.txt
 ```
 
 ## Screenshots
@@ -122,4 +142,4 @@ Screenshots will be added after the first visual pass:
 
 ## What Is Still Mock
 
-All agent outputs are deterministic mock responses. Provider classes exist, but OpenAI, Gemini, and OpenRouter calls are intentionally disabled until API key handling, budgets, and live-call controls are implemented.
+Mock runs produce deterministic structured artifacts. Provider classes exist, but OpenAI, Gemini, and OpenRouter live calls remain disabled unless `ALLOW_LIVE_CALLS=true`, the request uses `"mode":"live"`, limits pass, and CEO-live use is explicitly approved.

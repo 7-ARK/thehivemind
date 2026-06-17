@@ -19,6 +19,9 @@ The API will be available at `http://127.0.0.1:8000`.
 - `GET /health`
 - `POST /api/runs`
 - `GET /api/runs/{run_id}`
+- `GET /api/runs/{run_id}/events`
+- `GET /api/runs/{run_id}/artifacts`
+- `GET /api/runs/{run_id}/artifacts/{artifact_id}`
 - `GET /api/agents`
 - `GET /api/memory/summary`
 - `GET /api/providers/status`
@@ -26,6 +29,18 @@ The API will be available at `http://127.0.0.1:8000`.
 - `GET /api/usage/summary`
 
 Mock mode is enabled by default. Provider adapters exist, but live paid calls are intentionally disabled in this MVP.
+
+## First Controlled Run
+
+Run Engine v1 creates a sequential planning workflow, saves artifacts, updates memory, and logs usage:
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/runs ^
+  -H "Content-Type: application/json" ^
+  -d "{\"command\":\"Create a launch plan for a Greek yogurt business in Pakistan, excluding supplier sourcing and physical yogurt production.\",\"mode\":\"mock\",\"project_id\":\"greek-yogurt-test\",\"run_type\":\"business_launch_plan\",\"allow_ceo_live\":false,\"max_cost_usd\":0.25}"
+```
+
+Artifacts are written to `backend/data/artifacts/{run_id}/`.
 
 ## Safe Provider Testing
 

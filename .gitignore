@@ -35,6 +35,7 @@ coverage/
 *.sqlite
 *.sqlite3
 data/
+backend/data/
 
 # OS and editor
 .DS_Store
@@ -42,4 +43,3 @@ Thumbs.db
 Desktop.ini
 .idea/
 .vscode/
-
