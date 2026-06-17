@@ -213,3 +213,74 @@ export interface ArtifactRecord {
   agent_name: string;
   summary: string;
 }
+
+export interface CreateRunPayload {
+  command: string;
+  mode: "mock" | "live";
+  project_id?: string | null;
+  run_type: "business_launch_plan" | "prototype_build" | "continuation";
+  allow_file_writes: boolean;
+  allow_safe_commands: boolean;
+  allow_ceo_live: boolean;
+  max_cost_usd: number;
+}
+
+export interface RunEvent {
+  timestamp: string;
+  run_id?: string | null;
+  agent_name: string;
+  agent_role: string;
+  status: string;
+  action_summary: string;
+  input_summary: string;
+  output_summary: string;
+  model_used: string;
+  provider?: string | null;
+  estimated_input_tokens: number;
+  estimated_output_tokens: number;
+  estimated_tokens?: number | null;
+  estimated_cost_usd: number;
+  artifact_id?: string | null;
+}
+
+export interface RunUsageSummary {
+  estimated_cost_usd?: number;
+  estimated_tokens?: number;
+  agents_used?: number;
+  models_used?: string[];
+}
+
+export interface RunResult {
+  run_id: string;
+  command: string;
+  mode: "mock" | "live";
+  project_id?: string | null;
+  run_type: string;
+  status: string;
+  started_at: string;
+  completed_at?: string | null;
+  events: RunEvent[];
+  metrics: {
+    total_estimated_tokens: number;
+    total_estimated_cost_usd: number;
+    agents_used: number;
+    tasks_completed: number;
+    run_duration_seconds: number;
+    memory_chunks_retrieved: number;
+  };
+  memory: {
+    retrieved_snippets: Array<{ title: string; content: string; relevance_score: number }>;
+  };
+  final_output: {
+    summary: string;
+    what_was_done: string[];
+    recommended_next_actions: string[];
+    generated_artifacts: string[];
+  };
+  artifacts: ArtifactRecord[];
+  project_files_created: string[];
+  project_files_updated: string[];
+  commands_run: CommandResult[];
+  usage_summary: RunUsageSummary;
+  memory_updates: string[];
+}

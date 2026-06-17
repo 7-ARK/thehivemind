@@ -29,6 +29,8 @@ export default function App() {
   const [liveCallsAllowed, setLiveCallsAllowed] = useState(false);
   const [ceoModel, setCeoModel] = useState("gpt-5.5");
   const [workerModel, setWorkerModel] = useState("gpt-5.4-nano");
+  const [activeProjectId, setActiveProjectId] = useState("greek-yogurt-test");
+  const [projectRefreshTrigger, setProjectRefreshTrigger] = useState(0);
 
   useEffect(() => {
     Promise.all([getHealth(), getProviderStatus()])
@@ -45,8 +47,18 @@ export default function App() {
   }, []);
 
   // When a workflow completes, increment state so the Usage dashboard re-fetches!
-  const handleWorkflowCompleted = () => {
+  const handleWorkflowCompleted = (projectId?: string) => {
     setRefreshTrigger((prev) => prev + 1);
+    if (projectId) {
+      setActiveProjectId(projectId);
+      setProjectRefreshTrigger((prev) => prev + 1);
+    }
+  };
+
+  const handleOpenProject = (projectId: string) => {
+    setActiveProjectId(projectId);
+    setProjectRefreshTrigger((prev) => prev + 1);
+    setActiveTab("projects");
   };
 
   return (
@@ -260,7 +272,7 @@ export default function App() {
         {/* 3. SCROLLABLE CONTENTS CONTAINER */}
         <main className="flex-1 p-6 overflow-y-auto w-full max-w-7xl mx-auto">
           {activeTab === "orchestrator" && (
-            <Orchestrator onWorkflowCompleted={handleWorkflowCompleted} />
+            <Orchestrator onWorkflowCompleted={handleWorkflowCompleted} onOpenProject={handleOpenProject} />
           )}
 
           {activeTab === "reports" && (
@@ -268,7 +280,7 @@ export default function App() {
           )}
 
           {activeTab === "projects" && (
-            <ProjectWorkspacePanel />
+            <ProjectWorkspacePanel initialProjectId={activeProjectId} refreshTrigger={projectRefreshTrigger} />
           )}
 
           {activeTab === "agents" && (

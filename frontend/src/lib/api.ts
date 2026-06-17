@@ -18,6 +18,8 @@ import {
   ProjectChange,
   CommandResult,
   ArtifactRecord,
+  CreateRunPayload,
+  RunResult,
 } from "../types";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
@@ -364,12 +366,25 @@ export function exportUsageCsvUrl(range: string = "30d"): string {
 }
 
 export async function submitOrchestration(command: string): Promise<OrchestrationResult> {
-  const run = await request<BackendRunRecord>("/api/runs", {
-    method: "POST",
-    body: JSON.stringify({ command, mode: "mock" }),
+  const run = await createRun({
+    command,
+    mode: "mock",
+    project_id: "greek-yogurt-test",
+    run_type: "prototype_build",
+    allow_file_writes: true,
+    allow_safe_commands: true,
+    allow_ceo_live: false,
+    max_cost_usd: 0.25,
   });
 
   return mapRunToOrchestration(run);
+}
+
+export async function createRun(payload: CreateRunPayload): Promise<RunResult> {
+  return request<RunResult>("/api/runs", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 }
 
 export async function getProject(projectId: string): Promise<ProjectWorkspace> {
@@ -416,7 +431,7 @@ function encodeProjectPath(path: string): string {
   return path.split("/").map(encodeURIComponent).join("/");
 }
 
-function mapRunToOrchestration(run: BackendRunRecord): OrchestrationResult {
+function mapRunToOrchestration(run: BackendRunRecord | RunResult): OrchestrationResult {
   const agentEvents = run.events.filter((event) => event.agent_name !== "TheHiveMind");
   const agentSteps: CompletedAgentStep[] = agentEvents.map((event) => ({
     agent: normalizeAgentName(event.agent_name),
@@ -454,7 +469,7 @@ function mapRunToOrchestration(run: BackendRunRecord): OrchestrationResult {
   };
 }
 
-function buildFinalReport(run: BackendRunRecord): string {
+function buildFinalReport(run: BackendRunRecord | RunResult): string {
   const artifacts = run.final_output.generated_artifacts.map((item) => `- ${item}`).join("\n");
   const work = run.final_output.what_was_done.map((item) => `- ${item}`).join("\n");
   const next = run.final_output.recommended_next_actions.map((item) => `- ${item}`).join("\n");
@@ -484,7 +499,7 @@ ${next}
 `;
 }
 
-function estimateStepLatency(run: BackendRunRecord): number {
+function estimateStepLatency(run: BackendRunRecord | RunResult): number {
   return Math.max(1, Math.round((run.metrics.run_duration_seconds * 1000) / Math.max(1, run.events.length)));
 }
 

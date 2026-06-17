@@ -20,9 +20,14 @@ import ProjectManifestTable from "./ProjectManifestTable";
 import ProjectRunHistory from "./ProjectRunHistory";
 import ProjectStateCard from "./ProjectStateCard";
 
-export default function ProjectWorkspacePanel() {
-  const [projectId, setProjectId] = useState("greek-yogurt-test");
-  const [loadedProjectId, setLoadedProjectId] = useState("greek-yogurt-test");
+interface ProjectWorkspacePanelProps {
+  initialProjectId?: string;
+  refreshTrigger?: number;
+}
+
+export default function ProjectWorkspacePanel({ initialProjectId = "greek-yogurt-test", refreshTrigger = 0 }: ProjectWorkspacePanelProps) {
+  const [projectId, setProjectId] = useState(initialProjectId);
+  const [loadedProjectId, setLoadedProjectId] = useState(initialProjectId);
   const [stateContent, setStateContent] = useState("");
   const [manifest, setManifest] = useState<ProjectManifest | null>(null);
   const [files, setFiles] = useState<ProjectFile[]>([]);
@@ -77,6 +82,15 @@ export default function ProjectWorkspacePanel() {
   useEffect(() => {
     loadProject(loadedProjectId);
   }, []);
+
+  useEffect(() => {
+    if (initialProjectId && initialProjectId !== loadedProjectId) {
+      setProjectId(initialProjectId);
+      loadProject(initialProjectId);
+    } else if (refreshTrigger > 0) {
+      loadProject(loadedProjectId);
+    }
+  }, [initialProjectId, refreshTrigger]);
 
   useEffect(() => {
     if (!selectedPath) {

@@ -39,6 +39,26 @@ body {
   padding: 0;
 }
 
+.control-input {
+  width: 100%;
+  border-radius: 0.25rem;
+  border: 1px solid #2c2e33;
+  background: #141517;
+  color: #e9ecef;
+  padding: 0.625rem 0.75rem;
+  font-size: 0.75rem;
+  outline: none;
+}
+
+.control-input:focus {
+  box-shadow: 0 0 0 1px rgba(32, 201, 151, 0.6);
+}
+
+.control-input:disabled {
+  color: #909296;
+  cursor: not-allowed;
+}
+
 /* Spark animations for microactions */
 @keyframes spin-slow {
   from {

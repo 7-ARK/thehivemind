@@ -1,268 +1,442 @@
-import React, { useState } from "react";
-import { submitOrchestration } from "../lib/api";
-import { OrchestrationResult, CompletedAgentStep } from "../types";
+import React, { useMemo, useState } from "react";
+import { createRun } from "../lib/api";
+import { CreateRunPayload, RunEvent, RunResult } from "../types";
 import MarkdownView from "./MarkdownView";
 import {
-  Terminal,
-  Cpu,
-  PlayCircle,
-  Database,
-  Search,
-  CheckCircle2,
   AlertTriangle,
-  Sparkles,
-  Zap,
-  Layers,
   ArrowRight,
-  Clock
+  CheckCircle2,
+  Cpu,
+  Database,
+  FileText,
+  PlayCircle,
+  ShieldCheck,
+  Terminal,
+  ToggleLeft,
+  ToggleRight,
 } from "lucide-react";
 
 interface OrchestratorProps {
-  onWorkflowCompleted: () => void; // Trigger callback to notify parent stats were updated!
+  onWorkflowCompleted: (projectId?: string, runId?: string) => void;
+  onOpenProject: (projectId: string) => void;
 }
 
-export default function Orchestrator({ onWorkflowCompleted }: OrchestratorProps) {
-  const [command, setCommand] = useState("Build a launch plan for a Greek yogurt business");
+const EXAMPLE_CREATE = "Create a simple Greek yogurt order website prototype with files.";
+const EXAMPLE_CONTINUE = "Continue the Greek yogurt website and add a simple order status page.";
+
+export default function Orchestrator({ onWorkflowCompleted, onOpenProject }: OrchestratorProps) {
+  const [command, setCommand] = useState(EXAMPLE_CREATE);
+  const [projectId, setProjectId] = useState("greek-yogurt-test");
+  const [mode, setMode] = useState<CreateRunPayload["mode"]>("mock");
+  const [runType, setRunType] = useState<CreateRunPayload["run_type"]>("prototype_build");
+  const [allowFileWrites, setAllowFileWrites] = useState(true);
+  const [allowSafeCommands, setAllowSafeCommands] = useState(true);
+  const [allowCeoLive, setAllowCeoLive] = useState(false);
+  const [maxCostUsd, setMaxCostUsd] = useState("0.25");
   const [running, setRunning] = useState(false);
-  const [currentStepIndex, setCurrentStepIndex] = useState(-1);
-  const [accumulatedSteps, setAccumulatedSteps] = useState<CompletedAgentStep[]>([]);
-  const [result, setResult] = useState<OrchestrationResult | null>(null);
+  const [result, setResult] = useState<RunResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Preset quick commands for recruiters
-  const presets = [
-    "Build a launch plan for a Greek yogurt business",
-    "Develop high-performance trading bot on Rust",
-    "Create a multiagent workspace calendar assistant integration",
-  ];
+  const payload = useMemo<CreateRunPayload>(
+    () => ({
+      command: command.trim(),
+      mode,
+      project_id: projectId.trim() || null,
+      run_type: runType,
+      allow_file_writes: allowFileWrites,
+      allow_safe_commands: allowSafeCommands,
+      allow_ceo_live: allowCeoLive,
+      max_cost_usd: Number(maxCostUsd) || 0.25,
+    }),
+    [allowCeoLive, allowFileWrites, allowSafeCommands, command, maxCostUsd, mode, projectId, runType],
+  );
 
   const handleRun = async () => {
-    if (running || !command.trim()) return;
-
+    if (running || !payload.command) return;
     setRunning(true);
     setError(null);
     setResult(null);
-    setCurrentStepIndex(0);
-    setAccumulatedSteps([]);
-
     try {
-      // 1. Submit to Express simulation backend
-      const res = await submitOrchestration(command);
-
-      // 2. Play active step intervals to simulate AI thinking times for recruiters!
-      for (let i = 0; i < res.agentSteps.length; i++) {
-        setCurrentStepIndex(i);
-        setAccumulatedSteps((prev) => [...prev, res.agentSteps[i]]);
-        // Allow thinking gaps
-        await new Promise((resolve) => setTimeout(resolve, 1400));
-      }
-
-      // 3. Mark complete and store the final output payload
-      setResult(res);
-      setCurrentStepIndex(res.agentSteps.length);
-      
-      // Notify parent to trigger a statistics re-fetch
-      onWorkflowCompleted();
-    } catch (e: any) {
-      setError(e.message || "Failed to reach agent orchestrator backend cluster.");
+      const run = await createRun(payload);
+      setResult(run);
+      onWorkflowCompleted(run.project_id ?? payload.project_id ?? undefined, run.run_id);
+    } catch (err: any) {
+      setError(normalizeError(err?.message));
     } finally {
       setRunning(false);
     }
   };
 
-  const currentAgent = running && currentStepIndex >= 0 && currentStepIndex < 5 
-    ? ["CEO Agent", "Model Selector", "Research Agent", "Coding Agent", "QA Agent"][currentStepIndex] 
-    : null;
+  const filesCreated = result?.project_files_created ?? [];
+  const filesUpdated = result?.project_files_updated ?? [];
+  const commandsRun = result?.commands_run ?? [];
 
   return (
     <div id="orchestrator" className="space-y-6">
-      {/* Visual branding banner */}
-      <div className="bg-[#1a1b1e] border border-[#2c2e33] rounded-lg p-5 relative overflow-hidden">
-        <div className="absolute right-0 top-0 translate-x-12 -translate-y-12 w-32 h-32 rounded-full bg-[#20c997]/5 blur-[60px] pointer-events-none" />
-        <h2 className="text-base font-semibold text-[#e9ecef] flex items-center gap-1.5">
-          <Cpu className="text-[#20c997] w-4 h-4" />
-          <span>Multiagent Command Console</span>
-        </h2>
-        <p className="text-xs text-[#909296] mt-1 max-w-xl">
-          Dispatch cross-functional assignments. Watch the CEO Planner delegate sub-tasks to model selector, researchers, designers, and QA validations dynamically.
-        </p>
-
-        {/* Input box */}
-        <div className="mt-4 flex gap-2">
-          <input
-            id="orchestration-input"
-            type="text"
-            value={command}
-            onChange={(e) => setCommand(e.target.value)}
-            disabled={running}
-            placeholder="Type a high-level corporate prompt..."
-            className="flex-1 bg-[#141517] border border-[#2c2e33] rounded text-[#e9ecef] text-xs sm:text-sm px-3.5 py-2.5 outline-none focus:ring-1 focus:ring-[#20c997]/60 transition-all font-sans"
-          />
-          <button
-            id="run-orchestration-btn"
-            onClick={handleRun}
-            disabled={running || !command.trim()}
-            className="bg-[#20c997] hover:bg-[#1db184] disabled:bg-[#2c2e33] disabled:text-[#909296] text-[#141517] text-xs sm:text-sm font-bold px-4 py-2.5 rounded flex items-center gap-1.5 transition-all outline-none cursor-pointer"
-          >
-            <PlayCircle className={`w-4.5 h-4.5 ${running ? "animate-spin text-[#141517]" : ""}`} />
-            {running ? "Orchestrating..." : "Run Hive"}
-          </button>
+      <section className="bg-[#1a1b1e] border border-[#2c2e33] rounded-lg p-5">
+        <div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4 border-b border-[#2c2e33] pb-4">
+          <div>
+            <h2 className="text-base font-semibold text-[#e9ecef] flex items-center gap-2">
+              <Cpu className="text-[#20c997] w-4 h-4" />
+              <span>Command Console v2</span>
+            </h2>
+            <p className="text-xs text-[#909296] mt-1 max-w-2xl">
+              Start controlled backend runs with explicit project, mode, safety, and cost settings.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2 text-[10px] font-mono">
+            <Badge tone={mode === "mock" ? "green" : "amber"}>{mode === "mock" ? "MOCK SAFE" : "LIVE GUARDED"}</Badge>
+            <Badge tone={allowCeoLive ? "amber" : "green"}>{allowCeoLive ? "CEO LIVE ON" : "GPT-5.5 BLOCKED"}</Badge>
+            <Badge tone="neutral">MAX ${payload.max_cost_usd.toFixed(2)}</Badge>
+          </div>
         </div>
 
-        {/* Presets */}
-        <div className="mt-3.5 flex flex-wrap items-center gap-2">
-          <span className="text-[10px] text-[#909296] font-medium font-sans">Quick Presets:</span>
-          {presets.map((p, idx) => (
+        <div className="mt-5 grid grid-cols-1 xl:grid-cols-[1fr_360px] gap-5">
+          <div className="space-y-4">
+            <div>
+              <label className="text-[10px] text-[#909296] font-mono uppercase tracking-wider font-bold">
+                Command
+              </label>
+              <textarea
+                id="orchestration-input"
+                value={command}
+                onChange={(event) => setCommand(event.target.value)}
+                disabled={running}
+                placeholder="Tell TheHiveMind what to build, research, automate, or continue..."
+                className="mt-2 min-h-32 w-full bg-[#141517] border border-[#2c2e33] rounded text-[#e9ecef] text-sm px-3.5 py-3 outline-none focus:ring-1 focus:ring-[#20c997]/60 resize-y"
+              />
+              <div className="mt-2 flex flex-wrap gap-2">
+                <ExampleButton onClick={() => setCommand(EXAMPLE_CREATE)}>Create Greek yogurt website prototype</ExampleButton>
+                <ExampleButton onClick={() => setCommand(EXAMPLE_CONTINUE)}>Continue and add order status page</ExampleButton>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+              <Field label="Project ID" helper="Same project ID = continue existing project. New project ID = start a new workspace.">
+                <input
+                  value={projectId}
+                  onChange={(event) => setProjectId(event.target.value)}
+                  disabled={running}
+                  className="control-input"
+                />
+              </Field>
+
+              <Field label="Mode" helper={mode === "mock" ? "Mock mode uses deterministic responses and does not spend API credits." : "Live mode can use real API credits. Cost guards still apply."}>
+                <select value={mode} onChange={(event) => setMode(event.target.value as CreateRunPayload["mode"])} disabled={running} className="control-input">
+                  <option value="mock">mock</option>
+                  <option value="live">live</option>
+                </select>
+              </Field>
+
+              <Field label="Run Type" helper="Prototype builds can create or continue project files.">
+                <select value={runType} onChange={(event) => setRunType(event.target.value as CreateRunPayload["run_type"])} disabled={running} className="control-input">
+                  <option value="prototype_build">prototype_build</option>
+                  <option value="business_launch_plan">business_launch_plan</option>
+                  <option value="continuation">continuation</option>
+                </select>
+              </Field>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-4 gap-3">
+              <ToggleControl label="Allow file writes" checked={allowFileWrites} onChange={setAllowFileWrites} disabled={running} />
+              <ToggleControl label="Allow safe commands" checked={allowSafeCommands} onChange={setAllowSafeCommands} disabled={running} />
+              <ToggleControl
+                label="Allow CEO live model"
+                checked={allowCeoLive}
+                onChange={setAllowCeoLive}
+                disabled={running}
+                warning="GPT-5.5 may be expensive. Keep this off unless needed."
+              />
+              <Field label="Max run cost" helper="The run should stop if estimated cost crosses this limit.">
+                <input
+                  value={maxCostUsd}
+                  onChange={(event) => setMaxCostUsd(event.target.value)}
+                  disabled={running}
+                  type="number"
+                  min="0.01"
+                  max="5"
+                  step="0.01"
+                  className="control-input"
+                />
+              </Field>
+            </div>
+
+            {mode === "live" ? (
+              <WarningCard>
+                Live mode can use real API credits. GPT-5.5 remains blocked unless CEO live is enabled. Current cost limit: ${payload.max_cost_usd.toFixed(2)}.
+              </WarningCard>
+            ) : (
+              <InfoCard>Mock mode uses deterministic responses and does not spend API credits.</InfoCard>
+            )}
+
+            {error && <ErrorCard>{error}</ErrorCard>}
+
             <button
-              key={idx}
-              id={`preset-btn-${idx}`}
-              onClick={() => setCommand(p)}
-              disabled={running}
-              className="text-[10px] bg-[#25262b] hover:bg-[#2c2e33] text-[#909296] hover:text-[#e9ecef] border border-[#2c2e33] px-2.5 py-1 rounded transition-colors truncate max-w-[200px]"
+              id="run-orchestration-btn"
+              onClick={handleRun}
+              disabled={running || !payload.command}
+              className="bg-[#20c997] hover:bg-[#1db184] disabled:bg-[#2c2e33] disabled:text-[#909296] text-[#141517] text-sm font-bold px-4 py-3 rounded flex items-center justify-center gap-2 transition-all outline-none cursor-pointer w-full sm:w-auto"
             >
-              {p}
+              <PlayCircle className={`w-4 h-4 ${running ? "animate-spin" : ""}`} />
+              {running ? "Running Hive..." : "Run Hive"}
             </button>
-          ))}
-        </div>
-      </div>
-
-      {error && (
-        <div className="bg-rose-500/5 border border-rose-500/20 text-rose-300 p-4 rounded-xl text-xs flex items-center gap-2.5 font-sans">
-          <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
-          <span>{error}</span>
-        </div>
-      )}
-
-      {/* Running pipelines / workflow diagram */}
-      {(running || result) && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Timeline and Active Logs */}
-          <div className="lg:col-span-2 space-y-6">
-            <div className="bg-[#1a1b1e] border border-[#2c2e33] rounded-lg p-5">
-              <h3 className="text-xs font-[#fab005] font-bold text-[#909296] tracking-wider uppercase mb-4 flex items-center gap-2">
-                <Terminal className="w-4 h-4 text-[#20c997]" />
-                Live Agent Task Stream
-              </h3>
-
-              {/* Steps checklist */}
-              <div className="space-y-4">
-                {accumulatedSteps.map((step, idx) => (
-                  <div
-                    key={idx}
-                    className="p-3.5 bg-[#25262b] rounded-lg border border-[#2c2e33] flex items-start gap-3 relative overflow-hidden"
-                  >
-                    <div className="p-1 px-1.5 bg-[#141517] border border-[#2c2e33] rounded text-[9px] font-mono text-[#20c997] font-bold uppercase select-none shrink-0 mt-0.5">
-                      STEP {idx + 1}
-                    </div>
-
-                    <div className="flex-1 space-y-1">
-                      <div className="flex items-center justify-between text-xs font-semibold">
-                        <span className="text-[#e9ecef]">{step.agent}</span>
-                        <div className="flex items-center gap-2 text-[10px] font-mono text-[#909296]">
-                          <span>{step.tokens.toLocaleString()} tokens</span>
-                          <span>·</span>
-                          <span className="text-[#fab005] font-semibold">${step.cost.toFixed(4)}</span>
-                        </div>
-                      </div>
-                      <p className="text-[10px] text-[#909296] font-mono italic">{step.action}</p>
-                      <p className="text-xs text-[#e9ecef]/90 leading-relaxed font-sans mt-1.5">{step.content}</p>
-                    </div>
-                  </div>
-                ))}
-
-                {/* Loading state placeholders */}
-                {running && currentStepIndex < 5 && (
-                  <div className="p-4 bg-[#25262b]/40 border border-dashed border-[#2c2e33] rounded-lg flex items-center justify-center gap-2.5 py-8 animate-pulse text-xs text-[#909296]">
-                    <Zap className="w-4 h-4 text-[#20c997] animate-bounce" />
-                    <span>
-                      {currentAgent} preparing calculations...
-                    </span>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Generated Report Output details */}
-            {result && (
-              <div className="bg-[#1a1b1e] border border-[#2c2e33] rounded-lg p-5">
-                <div className="flex items-center justify-between border-b border-[#2c2e33] pb-3 mb-4">
-                  <h3 className="text-xs font-bold text-[#909296] tracking-wider uppercase flex items-center gap-1.5">
-                    <Layers className="w-4 h-4 text-[#20c997]" />
-                    Orchestrated Output Dispatch
-                  </h3>
-                  <span className="text-[10px] text-[#20c997] bg-[#20c997]/10 border border-[#20c997]/20 px-2.5 py-0.5 rounded font-mono font-bold">
-                    STATUS: DISPATCH_SUCCESS
-                  </span>
-                </div>
-
-                <div className="bg-[#141517] p-4 rounded border border-[#2c2e33]">
-                  <MarkdownView content={result.finalReport} />
-                </div>
-              </div>
-            )}
           </div>
 
-          {/* Side Overview Cards panel */}
+          <PayloadPreview payload={payload} />
+        </div>
+      </section>
+
+      {result && (
+        <section className="grid grid-cols-1 xl:grid-cols-[1fr_360px] gap-6">
           <div className="space-y-6">
-            {/* Active Run Telemetry */}
-            <div className="bg-[#1a1b1e] border border-[#2c2e33] rounded-lg p-5">
-              <h3 className="text-xs font-bold text-[#909296] tracking-wider uppercase mb-3">
-                Run Context Variables
+            <RunResultPanel
+              result={result}
+              filesCreated={filesCreated}
+              filesUpdated={filesUpdated}
+              commandsRun={commandsRun}
+              onOpenProject={() => result.project_id && onOpenProject(result.project_id)}
+            />
+            <Timeline events={result.events} />
+            <section className="bg-[#1a1b1e] border border-[#2c2e33] rounded-lg p-5">
+              <h3 className="text-xs font-bold text-[#909296] tracking-wider uppercase flex items-center gap-2 mb-3">
+                <FileText className="w-4 h-4 text-[#20c997]" />
+                Final Report
               </h3>
-
-              <div className="space-y-3.5 border-b border-[#2c2e33] pb-3.5 text-xs">
-                <div>
-                  <span className="text-[10px] text-[#909296] block uppercase font-bold tracking-wider font-mono">Orchestration Cluster ID</span>
-                  <span className="text-xs text-[#e9ecef] font-mono font-semibold">{result?.runId || "Pending deployment..."}</span>
-                </div>
-                <div>
-                  <span className="text-[10px] text-[#909296] block uppercase font-bold tracking-wider font-mono">Elapsed Spends (USD)</span>
-                  <span className="text-sm text-[#fab005] font-mono font-bold">${result ? result.cost.toFixed(4) : accumulatedSteps.reduce((acc, step) => acc + step.cost, 0).toFixed(4)}</span>
-                </div>
-                <div>
-                  <span className="text-[10px] text-[#909296] block uppercase font-bold tracking-wider font-mono">Accumulated Tokens</span>
-                  <span className="text-xs text-[#20c997] font-mono font-semibold">{result ? `${(result.tokensUsed / 1000).toFixed(1)}K` : `${(accumulatedSteps.reduce((acc, step) => acc + step.tokens, 0) / 1000).toFixed(1)}K`}</span>
-                </div>
+              <div className="bg-[#141517] border border-[#2c2e33] rounded p-4">
+                <MarkdownView content={buildFinalReport(result)} />
               </div>
-
-              {/* Memory snippets */}
-              <div className="pt-3">
-                <span className="text-[10px] text-[#909296] block uppercase font-bold font-mono mb-1.5">RAG context activated</span>
-                <p className="text-[11px] text-[#909296] leading-normal mb-2.5">
-                  The CEO retrieved relevant memory segments for this command avoiding blind inference:
-                </p>
-                <div className="space-y-2">
-                  {(result?.memoryUsed?.snippets || [
-                    "[RAG Search]: Resolving contextual constraints...",
-                    "[RAG Search]: Reading document corpus...",
-                  ]).map((snip, idx) => (
-                    <div key={idx} className="bg-[#141517] border border-[#2c2e33] p-2 rounded text-[10px] text-[#909296] font-mono leading-relaxed truncate">
-                      {snip}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            {/* Next actions suggestion block */}
-            {result && result.nextActions && (
-              <div className="bg-[#1a1b1e] border border-[#2c2e33] rounded-lg p-5">
-                <h3 className="text-xs font-bold text-[#909296] tracking-wider uppercase mb-3">
-                  Autonomous Next Action Triggers
-                </h3>
-                <div className="space-y-2.5">
-                  {result.nextActions.map((act, idx) => (
-                    <div key={idx} className="flex gap-2 text-xs text-[#e9ecef]">
-                      <ArrowRight className="w-3.5 h-3.5 mt-0.5 text-[#20c997] shrink-0" />
-                      <span className="text-[#909296] hover:text-[#e9ecef] transition-colors">{act}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
+            </section>
           </div>
-        </div>
+
+          <aside className="space-y-6">
+            <ListCard title="Files Created" items={filesCreated} empty="No project files created." />
+            <ListCard title="Files Updated" items={filesUpdated} empty="No project files updated." />
+            <CommandCard commands={commandsRun} />
+            <ListCard title="Artifacts" items={result.artifacts.map((artifact) => `${artifact.name} [${artifact.type}]`)} empty="No artifacts returned." />
+          </aside>
+        </section>
       )}
     </div>
   );
+}
+
+function Field({ label, helper, children }: { label: string; helper: string; children: React.ReactNode }) {
+  return (
+    <label className="block">
+      <span className="text-[10px] text-[#909296] font-mono uppercase tracking-wider font-bold">{label}</span>
+      <div className="mt-2">{children}</div>
+      <span className="mt-1.5 block text-[10px] text-[#909296] leading-relaxed">{helper}</span>
+    </label>
+  );
+}
+
+function ToggleControl({ label, checked, onChange, disabled, warning }: { label: string; checked: boolean; onChange: (value: boolean) => void; disabled?: boolean; warning?: string }) {
+  return (
+    <div className="bg-[#141517] border border-[#2c2e33] rounded p-3">
+      <button
+        type="button"
+        onClick={() => onChange(!checked)}
+        disabled={disabled}
+        className="w-full flex items-center justify-between gap-3 text-left"
+      >
+        <span className="text-xs font-semibold text-[#e9ecef]">{label}</span>
+        {checked ? <ToggleRight className="w-5 h-5 text-[#20c997]" /> : <ToggleLeft className="w-5 h-5 text-[#909296]" />}
+      </button>
+      {warning && <p className="mt-2 text-[10px] text-[#fab005] leading-relaxed">{warning}</p>}
+    </div>
+  );
+}
+
+function ExampleButton({ children, onClick }: { children: React.ReactNode; onClick: () => void }) {
+  return (
+    <button onClick={onClick} className="text-[10px] bg-[#25262b] hover:bg-[#2c2e33] text-[#909296] hover:text-[#e9ecef] border border-[#2c2e33] px-2.5 py-1 rounded transition-colors">
+      {children}
+    </button>
+  );
+}
+
+function PayloadPreview({ payload }: { payload: CreateRunPayload }) {
+  return (
+    <div className="bg-[#141517] border border-[#2c2e33] rounded-lg p-4 h-fit">
+      <h3 className="text-xs font-bold text-[#909296] uppercase tracking-wider font-mono mb-3 flex items-center gap-2">
+        <Terminal className="w-4 h-4 text-[#20c997]" />
+        Payload
+      </h3>
+      <pre className="text-[11px] text-[#909296] whitespace-pre-wrap font-mono leading-relaxed">{JSON.stringify(payload, null, 2)}</pre>
+    </div>
+  );
+}
+
+function RunResultPanel({ result, filesCreated, filesUpdated, commandsRun, onOpenProject }: { result: RunResult; filesCreated: string[]; filesUpdated: string[]; commandsRun: unknown[]; onOpenProject: () => void }) {
+  return (
+    <section className="bg-[#1a1b1e] border border-[#2c2e33] rounded-lg p-5">
+      <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
+        <div>
+          <h3 className="text-sm font-bold text-[#e9ecef] flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-[#20c997]" />
+            Run Completed
+          </h3>
+          <p className="text-xs text-[#909296] mt-1">{result.final_output.summary}</p>
+        </div>
+        {result.project_id && (
+          <button onClick={onOpenProject} className="bg-[#25262b] hover:bg-[#2c2e33] border border-[#2c2e33] text-[#20c997] px-3 py-2 rounded text-xs font-bold flex items-center gap-2">
+            <Database className="w-4 h-4" />
+            View Project Workspace
+          </button>
+        )}
+      </div>
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-4">
+        <Metric label="Run ID" value={result.run_id.slice(0, 8)} />
+        <Metric label="Status" value={result.status} />
+        <Metric label="Mode" value={result.mode} />
+        <Metric label="Run Type" value={result.run_type} />
+        <Metric label="Cost" value={`$${result.metrics.total_estimated_cost_usd.toFixed(6)}`} />
+        <Metric label="Agents" value={String(result.metrics.agents_used)} />
+        <Metric label="Created" value={String(filesCreated.length)} />
+        <Metric label="Updated" value={String(filesUpdated.length)} />
+        <Metric label="Commands" value={String(commandsRun.length)} />
+        <Metric label="Memory Updates" value={String(result.memory_updates?.length ?? 0)} />
+      </div>
+    </section>
+  );
+}
+
+function Timeline({ events }: { events: RunEvent[] }) {
+  return (
+    <section className="bg-[#1a1b1e] border border-[#2c2e33] rounded-lg p-5">
+      <h3 className="text-xs font-bold text-[#909296] tracking-wider uppercase mb-4 flex items-center gap-2">
+        <Terminal className="w-4 h-4 text-[#20c997]" />
+        Timeline
+      </h3>
+      <div className="space-y-3">
+        {events.map((event, index) => (
+          <div key={`${event.agent_name}-${index}`} className="bg-[#25262b] border border-[#2c2e33] rounded p-3">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+              <div>
+                <span className="text-[10px] text-[#20c997] font-mono uppercase">Step {index + 1}</span>
+                <h4 className="text-xs font-bold text-[#e9ecef]">{event.agent_name}</h4>
+              </div>
+              <div className="flex flex-wrap gap-2 text-[10px] font-mono text-[#909296]">
+                <span>{event.status}</span>
+                <span>{event.provider ?? "provider n/a"}</span>
+                <span>{event.model_used}</span>
+                <span className="text-[#fab005]">${event.estimated_cost_usd.toFixed(6)}</span>
+              </div>
+            </div>
+            <p className="text-xs text-[#909296] mt-2">{event.action_summary}</p>
+            {event.artifact_id && <p className="text-[10px] text-[#20c997] font-mono mt-2">artifact: {event.artifact_id}</p>}
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function Metric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="bg-[#141517] border border-[#2c2e33] rounded p-3">
+      <div className="text-[10px] text-[#909296] uppercase font-mono">{label}</div>
+      <div className="text-xs text-[#e9ecef] font-mono mt-1 truncate">{value}</div>
+    </div>
+  );
+}
+
+function ListCard({ title, items, empty }: { title: string; items: string[]; empty: string }) {
+  return (
+    <section className="bg-[#1a1b1e] border border-[#2c2e33] rounded-lg p-4">
+      <h3 className="text-xs font-bold text-[#909296] uppercase tracking-wider font-mono mb-3">{title}</h3>
+      {items.length === 0 ? (
+        <p className="text-xs text-[#909296]">{empty}</p>
+      ) : (
+        <div className="space-y-2 max-h-72 overflow-auto">
+          {items.map((item) => (
+            <div key={item} className="bg-[#141517] border border-[#2c2e33] rounded p-2 text-[11px] text-[#e9ecef] font-mono break-all">
+              {item}
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function CommandCard({ commands }: { commands: RunResult["commands_run"] }) {
+  return (
+    <section className="bg-[#1a1b1e] border border-[#2c2e33] rounded-lg p-4">
+      <h3 className="text-xs font-bold text-[#909296] uppercase tracking-wider font-mono mb-3">Commands Run</h3>
+      {commands.length === 0 ? (
+        <p className="text-xs text-[#909296]">No commands recorded.</p>
+      ) : (
+        <div className="space-y-2">
+          {commands.map((command, index) => (
+            <div key={index} className="bg-[#141517] border border-[#2c2e33] rounded p-2 text-[11px]">
+              <code className="text-[#e9ecef] break-all">{command.command.join(" ")}</code>
+              <div className={command.exit_code === 0 ? "text-[#20c997] mt-1" : "text-[#fab005] mt-1"}>exit {command.exit_code}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function WarningCard({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="bg-[#fab005]/10 border border-[#fab005]/30 text-[#fab005] p-3 rounded text-xs flex gap-2">
+      <AlertTriangle className="w-4 h-4 shrink-0" />
+      <span>{children}</span>
+    </div>
+  );
+}
+
+function InfoCard({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="bg-[#20c997]/10 border border-[#20c997]/20 text-[#20c997] p-3 rounded text-xs flex gap-2">
+      <ShieldCheck className="w-4 h-4 shrink-0" />
+      <span>{children}</span>
+    </div>
+  );
+}
+
+function ErrorCard({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="bg-rose-500/10 border border-rose-500/30 text-rose-300 p-3 rounded text-xs flex gap-2">
+      <AlertTriangle className="w-4 h-4 shrink-0" />
+      <span>{children}</span>
+    </div>
+  );
+}
+
+function Badge({ children, tone }: { children: React.ReactNode; tone: "green" | "amber" | "neutral" }) {
+  const color = tone === "green" ? "text-[#20c997] border-[#20c997]/20 bg-[#20c997]/10" : tone === "amber" ? "text-[#fab005] border-[#fab005]/30 bg-[#fab005]/10" : "text-[#909296] border-[#2c2e33] bg-[#25262b]";
+  return <span className={`px-2 py-1 rounded border ${color}`}>{children}</span>;
+}
+
+function buildFinalReport(run: RunResult): string {
+  const work = run.final_output.what_was_done.map((item) => `- ${item}`).join("\n");
+  const next = run.final_output.recommended_next_actions.map((item) => `- ${item}`).join("\n");
+  return `### ${run.command}
+
+**Run ID:** \`${run.run_id}\`
+**Status:** ${run.status}
+**Project:** ${run.project_id ?? "unassigned"}
+**Mode:** ${run.mode}
+
+#### Summary
+${run.final_output.summary}
+
+#### Work Completed
+${work}
+
+#### Next Actions
+${next}`;
+}
+
+function normalizeError(message?: string): string {
+  if (!message) return "Unknown backend error.";
+  if (message.includes("Live provider calls are disabled")) return "Live calls are disabled in the backend. Keep mock mode on or enable ALLOW_LIVE_CALLS=true.";
+  if (message.includes("API key is not configured")) return "The selected live provider is missing an API key.";
+  if (message.includes("max_cost_usd") || message.includes("cost")) return message;
+  if (message.includes("allow_file_writes")) return "This run type needs file writes enabled.";
+  return message;
 }
