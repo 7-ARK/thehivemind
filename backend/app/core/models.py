@@ -125,4 +125,9 @@ class RunRecord(BaseModel):
     artifacts: list[Artifact] = Field(default_factory=list)
     workspace: WorkspaceSummary | None = None
     project_workspace: ProjectWorkspaceSummary | None = None
+    models_used: list[str] = Field(default_factory=list)
+    project_files_created: list[str] = Field(default_factory=list)
+    project_files_updated: list[str] = Field(default_factory=list)
+    commands_run: list[dict] = Field(default_factory=list)
+    usage_summary: dict = Field(default_factory=dict)
     memory_updates: list[str] = Field(default_factory=list)

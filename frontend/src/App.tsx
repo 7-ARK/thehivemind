@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import UsageDashboard from "./components/usage/UsageDashboard";
 import Orchestrator from "./components/Orchestrator";
+import ProjectWorkspacePanel from "./components/projects/ProjectWorkspacePanel";
 import { getHealth, getProviderStatus } from "./lib/api";
 import {
   LayoutDashboard,
@@ -21,7 +22,7 @@ import {
 } from "lucide-react";
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<"orchestrator" | "reports" | "agents" | "memory">("orchestrator");
+  const [activeTab, setActiveTab] = useState<"orchestrator" | "projects" | "reports" | "agents" | "memory">("orchestrator");
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [backendStatus, setBackendStatus] = useState<"online" | "offline">("online");
   const [mockMode, setMockMode] = useState(true);
@@ -83,6 +84,19 @@ export default function App() {
             >
               <PlayCircle className="w-4 h-4 shrink-0" />
               <span>Command Console</span>
+            </button>
+
+            <button
+              id="nav-btn-projects"
+              onClick={() => setActiveTab("projects")}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-xs font-semibold tracking-wide cursor-pointer transition-colors ${
+                activeTab === "projects"
+                  ? "bg-[#2c2e33] text-[#20c997] font-semibold border-l-2 border-[#20c997]"
+                  : "text-[#909296] hover:bg-[#25262b] hover:text-[#e9ecef]"
+              }`}
+            >
+              <Database className="w-4 h-4 shrink-0" />
+              <span>Project Workspace</span>
             </button>
 
             <button
@@ -210,6 +224,14 @@ export default function App() {
             Play/Orchestrate
           </button>
           <button
+            onClick={() => setActiveTab("projects")}
+            className={`px-3 py-1.5 rounded-md text-xs font-semibold ${
+              activeTab === "projects" ? "bg-[#2c2e33] text-[#20c997]" : "text-[#909296]"
+            }`}
+          >
+            Workspace
+          </button>
+          <button
             onClick={() => setActiveTab("reports")}
             className={`px-3 py-1.5 rounded-md text-xs font-semibold ${
               activeTab === "reports" ? "bg-[#2c2e33] text-[#20c997]" : "text-[#909296]"
@@ -243,6 +265,10 @@ export default function App() {
 
           {activeTab === "reports" && (
             <UsageDashboard onRefreshTrigger={refreshTrigger} />
+          )}
+
+          {activeTab === "projects" && (
+            <ProjectWorkspacePanel />
           )}
 
           {activeTab === "agents" && (

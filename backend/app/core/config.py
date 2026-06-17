@@ -25,6 +25,8 @@ class Settings(BaseSettings):
 
     ceo_model: str = "gpt-5.5"
     ceo_service_tier: str = "flex"
+    ceo_fallback_model: str = "gpt-5.4-nano"
+    ceo_fallback_provider: str = "openai"
     model_selector_model: str = "gemini-3.5-flash"
     cheap_worker_model: str = "gpt-5.4-nano"
     cheap_search_worker_model: str = "gemini-3.1-flash-lite"

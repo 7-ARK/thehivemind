@@ -10,6 +10,7 @@ from fastapi import HTTPException
 from app.agents.business_agent import BusinessAgent
 from app.agents.ceo_agent import CEOAgent
 from app.agents.file_builder_agent import FileBuilderAgent
+from app.agents.llm_agent_runner import run_llm_agent
 from app.agents.model_selector_agent import ModelSelectorAgent
 from app.agents.operations_agent import OperationsAgent
 from app.agents.qa_agent import QAAgent
@@ -22,6 +23,7 @@ from app.memory.current_state import update_current_state
 from app.memory.embedding_memory import EmbeddingMemory
 from app.memory.retrieval import retrieve_memory
 from app.memory.vector_memory import LocalVectorMemory
+from app.orchestration.agent_context import AgentExecutionContext
 from app.orchestration.task_packet import TaskPacket
 from app.orchestration.task_graph import build_default_task_graph
 from app.projects.project_state import update_project_state
@@ -509,7 +511,50 @@ class ExecutionEngine:
             ["README.md", "app.py", "requirements.txt", "sample_orders.json", "index.html"],
             ["project_file_write"],
         )
-        file_entries = agents["file_builder"].build_project_greek_yogurt_site(active_project_id, run_id, command)
+        file_parse_note = ""
+        if mode == "live":
+            builder_context = AgentExecutionContext(
+                run_id=run_id,
+                project_id=active_project_id,
+                mode=mode,
+                agent_name="File Builder Agent",
+                agent_role=agents["file_builder"].role,
+                command=command,
+                task_objective=builder_packet.objective,
+                relevant_memory=relevant_memory,
+                relevant_project_files=builder_packet.relevant_project_files,
+                input_artifacts=[artifact.model_dump() for artifact in [ceo_artifact, operations_artifact, content_artifact]],
+                constraints=builder_packet.constraints,
+                allowed_tools=["project_file_write"],
+                model=agents["file_builder"].assigned_model,
+                provider=get_model_metadata(agents["file_builder"].assigned_model).provider,
+                max_output_tokens=min(500, self.settings.max_output_tokens_per_call),
+                max_cost_usd=self.settings.max_cost_per_call_usd,
+            )
+            builder_llm_output = await run_llm_agent(
+                builder_context,
+                "You convert approved prototype requirements into safe project file actions.",
+                (
+                    "Return JSON only with this shape: "
+                    '{"file_actions":[{"operation":"create|update","path":"website/app.py","summary":"...","content":"..."}]}. '
+                    "Allowed paths must stay under website/, content/, or docs/ and use safe extensions. "
+                    f"Command: {command}"
+                ),
+                settings=self.settings,
+                usage_store=self.usage,
+                request_type="file_generation",
+            )
+            file_entries, file_parse_note = self._apply_live_file_actions(
+                active_project_id,
+                run_id,
+                builder_llm_output.output_text,
+                "File Builder Agent",
+            )
+            if not file_entries:
+                file_parse_note = file_parse_note or "No valid file actions returned; deterministic safe builder fallback was used."
+                file_entries = agents["file_builder"].build_project_greek_yogurt_site(active_project_id, run_id, command)
+        else:
+            file_entries = agents["file_builder"].build_project_greek_yogurt_site(active_project_id, run_id, command)
         workspace_artifacts = []
         for entry in file_entries:
             artifact = self.artifacts.register_file(
@@ -523,6 +568,8 @@ class ExecutionEngine:
             workspace_artifacts.append(artifact)
             artifact_records.append(artifact)
         file_builder_text = "\n".join(f"- {entry.operation}: {entry.path} ({entry.size_bytes} bytes)" for entry in file_entries)
+        if file_parse_note:
+            file_builder_text = f"{file_builder_text}\n\nLive file action note: {file_parse_note}"
         file_builder_event = self._manual_step(
             run_id=run_id,
             mode=mode,
@@ -781,6 +828,16 @@ class ExecutionEngine:
             artifacts=artifact_records,
             workspace=workspace_summary,
             project_workspace=project_workspace_summary,
+            models_used=sorted({event.model_used for event in events}),
+            project_files_created=created_files,
+            project_files_updated=[*edited_files, state_entry.path] if state_entry.operation == "updated" else edited_files,
+            commands_run=[result.model_dump() for result in command_results],
+            usage_summary={
+                "estimated_cost_usd": metrics.total_estimated_cost_usd,
+                "estimated_tokens": metrics.total_estimated_tokens,
+                "agents_used": metrics.agents_used,
+                "models_used": sorted({event.model_used for event in events}),
+            },
             memory_updates=memory_updates,
         )
         self._save_run(record)
@@ -798,7 +855,7 @@ class ExecutionEngine:
 
     def _safe_ceo_model(self, mode: str, allow_ceo_live: bool) -> str:
         if mode == "live" and not allow_ceo_live:
-            return self.settings.cheap_worker_model
+            return self.settings.ceo_fallback_model
         return self.settings.ceo_model
 
     async def _run_step(
@@ -815,6 +872,24 @@ class ExecutionEngine:
         mock_output: str,
     ) -> dict[str, Any]:
         metadata = get_model_metadata(model, self.settings.ceo_service_tier if model == self.settings.ceo_model else None)
+        context = AgentExecutionContext(
+            run_id=run_id,
+            project_id="unassigned",
+            mode=mode,
+            agent_name=agent_name,
+            agent_role=agent_role,
+            command=command,
+            task_objective=request_type,
+            relevant_memory=[],
+            relevant_project_files=[],
+            input_artifacts=[],
+            constraints=["Do not browse the web.", "Do not expose secrets.", "Do not perform external actions."],
+            allowed_tools=["artifact_write"],
+            model=model,
+            provider=metadata.provider,
+            max_output_tokens=min(500, self.settings.max_output_tokens_per_call),
+            max_cost_usd=self.settings.max_cost_per_call_usd,
+        )
         if mode == "mock":
             input_tokens = estimate_tokens(prompt)
             output_tokens = estimate_tokens(mock_output)
@@ -835,38 +910,22 @@ class ExecutionEngine:
                 success=True,
                 metadata={"usage_source": "run_engine_v1"},
             )
-            return {
-                "run_id": run_id,
-                "agent_name": agent_name,
-                "agent_role": agent_role,
-                "provider": metadata.provider,
-                "model": model,
-                "request_type": request_type,
-                "input": prompt,
-                "text": mock_output,
-                "input_tokens": input_tokens,
-                "output_tokens": output_tokens,
-                "cost": cost,
-                "latency_ms": 1,
-            }
-
-        response, _ = await generate_with_provider(
-            provider=metadata.provider,
-            model=model,
-            mode="live",
-            messages=[
-                {"role": "system", "content": "You are an agent inside TheHiveMind. Produce concise, structured, safe output. Do not browse the web."},
-                {"role": "user", "content": prompt},
-            ],
-            max_output_tokens=500,
-            temperature=0.2,
-            service_tier=self.settings.ceo_service_tier if model == self.settings.ceo_model else None,
-            run_id=run_id,
-            agent_name=agent_name,
-            request_type=request_type,
-            settings=self.settings,
-            usage_store=self.usage,
-        )
+            output_text = mock_output
+            latency_ms = 1
+        else:
+            output = await run_llm_agent(
+                context,
+                "You are an agent inside TheHiveMind. Produce concise, structured, safe output.",
+                prompt,
+                settings=self.settings,
+                usage_store=self.usage,
+                request_type=request_type,
+            )
+            input_tokens = output.input_tokens
+            output_tokens = output.output_tokens
+            cost = output.estimated_cost_usd
+            output_text = output.output_text
+            latency_ms = output.latency_ms
         return {
             "run_id": run_id,
             "agent_name": agent_name,
@@ -875,11 +934,11 @@ class ExecutionEngine:
             "model": model,
             "request_type": request_type,
             "input": prompt,
-            "text": response.text,
-            "input_tokens": response.input_tokens,
-            "output_tokens": response.output_tokens,
-            "cost": response.estimated_cost_usd,
-            "latency_ms": response.latency_ms,
+            "text": output_text,
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "cost": cost,
+            "latency_ms": latency_ms,
         }
 
     def _event_from_step(self, step: dict[str, Any], action_summary: str, input_summary: str, artifact_id: str | None) -> RunEvent:
@@ -1066,6 +1125,39 @@ Run Engine v1 completed a controlled, sequential workflow and saved stage output
 - No emails, social posts, deployments, supplier sourcing, or physical production steps were executed.
 - Human review is required before using claims, prices, delivery promises, or launch content publicly.
 """
+
+    def _apply_live_file_actions(self, project_id: str, run_id: str, output_text: str, agent_name: str) -> tuple[list[Any], str]:
+        try:
+            cleaned = output_text.strip()
+            if cleaned.startswith("```"):
+                cleaned = cleaned.strip("`")
+                if cleaned.lower().startswith("json"):
+                    cleaned = cleaned[4:].strip()
+            payload = json.loads(cleaned)
+        except json.JSONDecodeError:
+            return [], "File Builder returned invalid JSON; no LLM file actions were applied."
+        actions = payload.get("file_actions", []) if isinstance(payload, dict) else []
+        if not isinstance(actions, list):
+            return [], "File Builder JSON did not contain a valid file_actions list."
+        manager = ProjectWorkspaceManager(self.settings)
+        entries = []
+        rejected = []
+        for action in actions:
+            if not isinstance(action, dict):
+                rejected.append("non-object action")
+                continue
+            path = str(action.get("path", ""))
+            content = action.get("content")
+            summary = str(action.get("summary", f"Live file action for {path}"))
+            if not path or not isinstance(content, str):
+                rejected.append(path or "missing path")
+                continue
+            try:
+                entries.append(manager.write_project_file(project_id, path, content, agent_name, run_id, summary))
+            except HTTPException as exc:
+                rejected.append(f"{path}: {exc.detail}")
+        note = f"Rejected file actions: {', '.join(rejected)}" if rejected else ""
+        return entries, note
 
     def _prototype_qa_review(self, command: str, qa_input: str, command_results: list[CommandResult]) -> str:
         command_status = "passed" if all(result.allowed and result.exit_code == 0 for result in command_results) else "needs review"

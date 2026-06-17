@@ -154,6 +154,42 @@ Legacy run workspace endpoints still exist for earlier sandbox inspection:
 - `GET /api/runs/{run_id}/workspace/manifest`
 - `GET /api/runs/{run_id}/workspace/commands`
 
+## Live Agent Execution v1
+
+Mock mode remains the default. A live run is allowed only when the request uses `"mode":"live"`, `.env` has `ALLOW_LIVE_CALLS=true`, the provider key exists, token and cost guards pass, and the selected model is allowed.
+
+GPT-5.5 is not called by default. If `allow_ceo_live=false`, the CEO step uses `CEO_FALLBACK_MODEL`, defaulting to `gpt-5.4-nano`.
+
+Safe mock command:
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/runs ^
+  -H "Content-Type: application/json" ^
+  -d "{\"command\":\"Create a simple Greek yogurt order website prototype with files.\",\"mode\":\"mock\",\"project_id\":\"greek-yogurt-test\",\"run_type\":\"prototype_build\",\"allow_file_writes\":true,\"allow_safe_commands\":true,\"allow_ceo_live\":false,\"max_cost_usd\":0.25}"
+```
+
+Safe live command:
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/runs ^
+  -H "Content-Type: application/json" ^
+  -d "{\"command\":\"Create a simple Greek yogurt order website prototype with files.\",\"mode\":\"live\",\"project_id\":\"greek-yogurt-test\",\"run_type\":\"prototype_build\",\"allow_file_writes\":true,\"allow_safe_commands\":true,\"allow_ceo_live\":false,\"max_cost_usd\":0.10}"
+```
+
+View the workspace in the frontend:
+
+```text
+http://localhost:3001
+```
+
+Open the `Project Workspace` tab and load `greek-yogurt-test`.
+
+Check usage:
+
+```bash
+curl http://127.0.0.1:8000/api/usage/summary
+```
+
 ## Environment Variables
 
 Copy `.env.example` to `.env` if needed. The repository includes a local placeholder `.env`, but `.env` is ignored by Git.
@@ -165,6 +201,8 @@ OPENAI_API_KEY=
 OPENAI_TRACKING_ID=
 GOOGLE_API_KEY=
 OPENROUTER_API_KEY=
+CEO_FALLBACK_MODEL=gpt-5.4-nano
+CEO_FALLBACK_PROVIDER=openai
 DATABASE_URL=sqlite:///./thehivemind.db
 VECTOR_STORE_PATH=./data/vector_memory
 ARTIFACT_STORE_PATH=./backend/data/artifacts

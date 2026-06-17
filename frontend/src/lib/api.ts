@@ -12,6 +12,12 @@ import {
   OrchestrationResult,
   CompletedAgentStep,
   OrchestratePlanStep,
+  ProjectWorkspace,
+  ProjectManifest,
+  ProjectFile,
+  ProjectChange,
+  CommandResult,
+  ArtifactRecord,
 } from "../types";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
@@ -364,6 +370,50 @@ export async function submitOrchestration(command: string): Promise<Orchestratio
   });
 
   return mapRunToOrchestration(run);
+}
+
+export async function getProject(projectId: string): Promise<ProjectWorkspace> {
+  return request(`/api/projects/${encodeURIComponent(projectId)}`);
+}
+
+export async function getProjectState(projectId: string): Promise<{ project_id: string; path: string; content: string }> {
+  return request(`/api/projects/${encodeURIComponent(projectId)}/state`);
+}
+
+export async function getProjectManifest(projectId: string): Promise<ProjectManifest> {
+  return request(`/api/projects/${encodeURIComponent(projectId)}/manifest`);
+}
+
+export async function getProjectFiles(projectId: string): Promise<ProjectFile[]> {
+  return request(`/api/projects/${encodeURIComponent(projectId)}/files`);
+}
+
+export async function getProjectFile(projectId: string, path: string): Promise<{ project_id: string; path: string; content: string }> {
+  return request(`/api/projects/${encodeURIComponent(projectId)}/files/${encodeProjectPath(path)}`);
+}
+
+export async function getProjectRuns(projectId: string): Promise<{ project_id: string; runs: ProjectManifest["runs"] }> {
+  return request(`/api/projects/${encodeURIComponent(projectId)}/runs`);
+}
+
+export async function getProjectChanges(projectId: string): Promise<{ project_id: string; changes: ProjectChange[] }> {
+  return request(`/api/projects/${encodeURIComponent(projectId)}/changes`);
+}
+
+export async function getRunWorkspaceFiles(runId: string): Promise<{ run_id: string; files: Array<Record<string, unknown>> }> {
+  return request(`/api/runs/${encodeURIComponent(runId)}/workspace/files`);
+}
+
+export async function getRunCommands(runId: string): Promise<CommandResult[]> {
+  return request(`/api/runs/${encodeURIComponent(runId)}/commands`);
+}
+
+export async function getRunArtifacts(runId: string): Promise<ArtifactRecord[]> {
+  return request(`/api/runs/${encodeURIComponent(runId)}/artifacts`);
+}
+
+function encodeProjectPath(path: string): string {
+  return path.split("/").map(encodeURIComponent).join("/");
 }
 
 function mapRunToOrchestration(run: BackendRunRecord): OrchestrationResult {

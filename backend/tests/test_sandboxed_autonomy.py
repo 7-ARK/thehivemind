@@ -89,6 +89,9 @@ def test_prototype_build_creates_workspace_files_artifacts_commands_and_memory(c
 
     commands = payload["workspace"]["commands_run"]
     assert commands[0]["command"] == ["python", "-m", "py_compile", "website/app.py"]
+    command_endpoint = client.get(f"/api/runs/{run_id}/commands")
+    assert command_endpoint.status_code == 200
+    assert command_endpoint.json()[0]["command"] == ["python", "-m", "py_compile", "website/app.py"]
 
     blocked_env = client.get("/api/projects/greek-yogurt-test/files/.env")
     assert blocked_env.status_code == 400

@@ -28,7 +28,10 @@ async def generate_with_provider(
     temperature: float = 0.2,
     service_tier: str | None = None,
     run_id: str | None = None,
+    task_id: str | None = None,
     agent_name: str | None = None,
+    agent_role: str | None = None,
+    project_id: str | None = None,
     request_type: str = "provider_test",
     settings: Settings | None = None,
     usage_store: UsageStore | None = None,
@@ -70,7 +73,9 @@ async def generate_with_provider(
         )
         usage_log_id = usage_store.log_call(
             run_id=run_id,
+            task_id=task_id,
             agent_name=agent_name,
+            agent_role=agent_role,
             provider=response.provider if mode == "mock" else provider,
             model=response.model,
             mode=mode,
@@ -81,7 +86,7 @@ async def generate_with_provider(
             latency_ms=response.latency_ms,
             success=True,
             request_type=request_type,
-            metadata={"effective_provider": effective_provider, **response.raw_metadata},
+            metadata={"effective_provider": effective_provider, "project_id": project_id, **response.raw_metadata},
         )
         return response, usage_log_id
     except HTTPException:
@@ -89,7 +94,9 @@ async def generate_with_provider(
     except Exception as exc:
         usage_log_id = usage_store.log_call(
             run_id=run_id,
+            task_id=task_id,
             agent_name=agent_name,
+            agent_role=agent_role,
             provider=provider,
             model=model,
             mode=mode,
@@ -101,6 +108,6 @@ async def generate_with_provider(
             success=False,
             error_message=str(exc),
             request_type=request_type,
-            metadata={"effective_provider": effective_provider},
+            metadata={"effective_provider": effective_provider, "project_id": project_id},
         )
         raise HTTPException(status_code=502, detail=f"Provider call failed. usage_log_id={usage_log_id}") from exc

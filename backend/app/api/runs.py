@@ -1,5 +1,8 @@
+import json
+
 from fastapi import APIRouter, HTTPException
 
+from app.core.config import get_settings
 from app.core.models import RunCreate, RunRecord
 from app.artifacts.artifact_store import ArtifactStore
 from app.artifacts.schemas import ArtifactContent
@@ -79,6 +82,19 @@ def get_workspace_manifest(run_id: str) -> WorkspaceManifest:
 
 @router.get("/{run_id}/workspace/commands", response_model=list[CommandResult])
 def get_workspace_commands(run_id: str) -> list[CommandResult]:
-    if RunManager().get_run(run_id) is None:
+    return get_run_commands(run_id)
+
+
+@router.get("/{run_id}/commands", response_model=list[CommandResult])
+def get_run_commands(run_id: str) -> list[CommandResult]:
+    run = RunManager().get_run(run_id)
+    if run is None:
         raise HTTPException(status_code=404, detail="Run not found")
+    if run.commands_run:
+        return [CommandResult.model_validate(item) for item in run.commands_run]
+    if run.workspace and run.workspace.commands_run:
+        return run.workspace.commands_run
+    run_commands_path = get_settings().run_path / run_id / "commands.json"
+    if run_commands_path.exists():
+        return [CommandResult.model_validate(item) for item in json.loads(run_commands_path.read_text(encoding="utf-8"))]
     return WorkspaceManager().read_commands(run_id)

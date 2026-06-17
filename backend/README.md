@@ -69,6 +69,20 @@ curl -X POST http://127.0.0.1:8000/api/runs ^
 
 The project workspace blocks `.env`, path traversal, dangerous commands, package installs, Git pushes/resets, and writes outside the approved project directory.
 
+## Live Agent Execution
+
+Mock mode remains default. Live runs require `"mode":"live"`, `ALLOW_LIVE_CALLS=true`, a configured provider key, and passing token/cost limits.
+
+GPT-5.5 is not used unless the request explicitly sets `allow_ceo_live=true`. Otherwise the CEO step uses `CEO_FALLBACK_MODEL`, defaulting to `gpt-5.4-nano`.
+
+Safe live prototype request:
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/runs ^
+  -H "Content-Type: application/json" ^
+  -d "{\"command\":\"Create a simple Greek yogurt order website prototype with files.\",\"mode\":\"live\",\"project_id\":\"greek-yogurt-test\",\"run_type\":\"prototype_build\",\"allow_file_writes\":true,\"allow_safe_commands\":true,\"allow_ceo_live\":false,\"max_cost_usd\":0.10}"
+```
+
 ## Safe Provider Testing
 
 Live provider calls are blocked unless all of these are true:
