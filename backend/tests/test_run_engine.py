@@ -78,8 +78,10 @@ def test_run_detail_events_and_artifact_endpoints(client):
 
 def test_live_run_blocked_when_not_allowed(client):
     response = client.post("/api/runs", json={"command": COMMAND, "mode": "live"})
-    assert response.status_code == 403
-    assert "Live provider calls are disabled" in response.text
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "approval_required"
+    assert {approval["approval_type"] for approval in payload["approval_requests"]} == {"live_mode"}
 
 
 def test_live_ceo_model_is_downgraded_without_explicit_ceo_approval(client):

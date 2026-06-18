@@ -70,8 +70,15 @@ class OpenRouterProvider(BaseProvider):
             text=text,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
-            cached_tokens=0,
+            cached_tokens=int(usage.get("cached_tokens") or 0),
             estimated_cost_usd=round(float(estimated_cost), 6),
             latency_ms=round((perf_counter() - started_at) * 1000),
-            raw_metadata={"usage_source": "provider", "response_id": payload.get("id")},
+            raw_metadata={
+                "usage_source": "provider",
+                "response_id": payload.get("id"),
+                "generation_id": payload.get("id"),
+                "provider_reported_cost_usd": round(float(estimated_cost), 6),
+                "reasoning_tokens": usage.get("reasoning_tokens"),
+                "effective_provider": payload.get("provider"),
+            },
         )

@@ -2,6 +2,8 @@ import json
 
 from fastapi import APIRouter, HTTPException
 
+from app.approvals.approval_engine import ApprovalEngine
+from app.approvals.schemas import ApprovalRequiredResponse
 from app.core.config import get_settings
 from app.core.models import RunCreate, RunRecord
 from app.artifacts.artifact_store import ArtifactStore
@@ -15,13 +17,21 @@ from app.projects.schemas import ProjectWorkspaceSummary
 from app.workspace.schemas import CommandResult, WorkspaceManifest
 from app.workspace.schemas import WorkspaceSummary
 from app.workspace.workspace_manager import WorkspaceManager
+from app.usage_sync.provider_sync_service import ProviderSyncService
 
 router = APIRouter(prefix="/api/runs", tags=["runs"])
 
 
-@router.post("", response_model=RunRecord)
-async def start_run(payload: RunCreate) -> RunRecord:
-    return await execute_run(
+RunStartResponse = RunRecord | ApprovalRequiredResponse
+
+
+@router.post("", response_model=RunStartResponse)
+async def start_run(payload: RunCreate) -> RunStartResponse:
+    payload = _apply_prompt_safety_overrides(payload)
+    approval_response = ApprovalEngine().require_or_create(payload)
+    if approval_response is not None:
+        return approval_response
+    record = await execute_run(
         command=payload.command,
         mode=payload.mode,
         project_id=payload.project_id,
@@ -31,6 +41,20 @@ async def start_run(payload: RunCreate) -> RunRecord:
         allow_safe_commands=payload.allow_safe_commands,
         max_cost_usd=payload.max_cost_usd,
     )
+    if record.mode == "live":
+        sync_result = await ProviderSyncService().sync_after_live_run()
+        record.usage_summary = {**record.usage_summary, "official_usage_sync": sync_result}
+    return record
+
+
+def _apply_prompt_safety_overrides(payload: RunCreate) -> RunCreate:
+    command = payload.command.lower()
+    updates = {}
+    if any(phrase in command for phrase in ("do not create files", "don't create files", "no file writes", "do not write files")):
+        updates["allow_file_writes"] = False
+    if any(phrase in command for phrase in ("do not run commands", "don't run commands", "no commands", "do not execute commands")):
+        updates["allow_safe_commands"] = False
+    return payload.model_copy(update=updates) if updates else payload
 
 
 @router.get("/{run_id}", response_model=RunRecord)

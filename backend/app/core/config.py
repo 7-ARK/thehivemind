@@ -20,8 +20,11 @@ class Settings(BaseSettings):
     allow_live_calls: bool = False
 
     openai_api_key: str = ""
+    openai_admin_api_key: str = ""
     google_api_key: str = ""
+    gemini_api_key: str = ""
     openrouter_api_key: str = ""
+    openrouter_management_key: str = ""
 
     ceo_model: str = "gpt-5.5"
     ceo_service_tier: str = "flex"
@@ -38,8 +41,18 @@ class Settings(BaseSettings):
     workspace_store_path: str = "./backend/data/workspaces"
     project_store_path: str = "./backend/data/projects"
     run_store_path: str = "./backend/data/runs"
+    approval_store_path: str = "./backend/data/approvals"
+    provider_usage_store_path: str = "./backend/data/provider_usage"
     current_state_path: str = "./backend/data/current_state.txt"
     openai_tracking_id: str = ""
+
+    enable_openai_official_usage_sync: bool = False
+    enable_google_billing_sync: bool = False
+    enable_openrouter_official_usage_sync: bool = False
+    google_cloud_project_id: str = ""
+    google_billing_bigquery_dataset: str = ""
+    google_billing_location: str = "US"
+    google_application_credentials: str = ""
 
     max_input_tokens_per_call: int = 4000
     max_output_tokens_per_call: int = 500
@@ -53,9 +66,12 @@ class Settings(BaseSettings):
     enable_openai_web_search: bool = False
     enable_gemini_grounding: bool = False
     enable_openrouter_search: bool = False
+    auto_sync_provider_usage_after_live_run: bool = True
+    auto_sync_official_usage_after_live_run: bool = True
+    official_usage_sync_cooldown_minutes: int = 10
 
     model_config = SettingsConfigDict(
-        env_file=REPO_ROOT / ".env",
+        env_file=(REPO_ROOT / ".env", REPO_ROOT / "backend" / ".env"),
         env_file_encoding="utf-8",
         extra="ignore",
     )
@@ -93,6 +109,16 @@ class Settings(BaseSettings):
         return configured if configured.is_absolute() else REPO_ROOT / configured
 
     @property
+    def approval_path(self) -> Path:
+        configured = Path(self.approval_store_path)
+        return configured if configured.is_absolute() else REPO_ROOT / configured
+
+    @property
+    def provider_usage_path(self) -> Path:
+        configured = Path(self.provider_usage_store_path)
+        return configured if configured.is_absolute() else REPO_ROOT / configured
+
+    @property
     def state_path(self) -> Path:
         configured = Path(self.current_state_path)
         return configured if configured.is_absolute() else REPO_ROOT / configured
@@ -111,7 +137,7 @@ class Settings(BaseSettings):
         normalized = provider.lower()
         keys = {
             "openai": self.openai_api_key,
-            "gemini": self.google_api_key,
+            "gemini": self.gemini_api_key or self.google_api_key,
             "openrouter": self.openrouter_api_key,
         }
         if normalized not in keys:

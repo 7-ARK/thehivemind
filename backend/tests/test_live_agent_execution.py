@@ -64,18 +64,35 @@ def enable_live(monkeypatch):
     get_settings.cache_clear()
 
 
+def approve_required(client, payload):
+    initial = client.post("/api/runs", json=payload)
+    assert initial.status_code == 200
+    approval_payload = initial.json()
+    assert approval_payload["status"] == "approval_required"
+
+    approval_ids = []
+    for approval in approval_payload["approval_requests"]:
+        decision = client.post(
+            f"/api/approvals/{approval['id']}/decision",
+            json={"decision": "approved", "reason": "test approval"},
+        )
+        assert decision.status_code == 200
+        approval_ids.append(approval["id"])
+
+    return {**payload, "approval_ids": approval_ids}
+
+
 def test_run_live_mode_blocked_when_not_allowed(client):
-    response = client.post(
-        "/api/runs",
-        json={
-            "command": PROTOTYPE_COMMAND,
-            "mode": "live",
-            "project_id": "greek-yogurt-live",
-            "run_type": "prototype_build",
-            "allow_file_writes": True,
-            "allow_safe_commands": True,
-        },
-    )
+    payload = {
+        "command": PROTOTYPE_COMMAND,
+        "mode": "live",
+        "project_id": "greek-yogurt-live",
+        "run_type": "prototype_build",
+        "allow_file_writes": True,
+        "allow_safe_commands": True,
+    }
+    approved_payload = approve_required(client, payload)
+    response = client.post("/api/runs", json=approved_payload)
     assert response.status_code == 403
     assert "Live provider calls are disabled" in response.text
 
@@ -84,19 +101,18 @@ def test_live_run_uses_fallback_ceo_model_when_ceo_live_not_allowed(client, monk
     enable_live(monkeypatch)
     monkeypatch.setattr("app.orchestration.execution_engine.run_llm_agent", fake_live_runner)
 
-    response = client.post(
-        "/api/runs",
-        json={
-            "command": PROTOTYPE_COMMAND,
-            "mode": "live",
-            "project_id": "greek-yogurt-live",
-            "run_type": "prototype_build",
-            "allow_file_writes": True,
-            "allow_safe_commands": True,
-            "allow_ceo_live": False,
-            "max_cost_usd": 0.25,
-        },
-    )
+    payload = {
+        "command": PROTOTYPE_COMMAND,
+        "mode": "live",
+        "project_id": "greek-yogurt-live",
+        "run_type": "prototype_build",
+        "allow_file_writes": True,
+        "allow_safe_commands": True,
+        "allow_ceo_live": False,
+        "max_cost_usd": 0.25,
+    }
+    approved_payload = approve_required(client, payload)
+    response = client.post("/api/runs", json=approved_payload)
     assert response.status_code == 200
     payload = response.json()
     ceo_event = next(event for event in payload["events"] if event["agent_name"] == "CEO Agent")
@@ -113,19 +129,18 @@ def test_live_run_can_use_ceo_model_only_when_explicitly_allowed(client, monkeyp
     enable_live(monkeypatch)
     monkeypatch.setattr("app.orchestration.execution_engine.run_llm_agent", fake_live_runner)
 
-    response = client.post(
-        "/api/runs",
-        json={
-            "command": PROTOTYPE_COMMAND,
-            "mode": "live",
-            "project_id": "greek-yogurt-ceo-live",
-            "run_type": "prototype_build",
-            "allow_file_writes": True,
-            "allow_safe_commands": False,
-            "allow_ceo_live": True,
-            "max_cost_usd": 0.25,
-        },
-    )
+    payload = {
+        "command": PROTOTYPE_COMMAND,
+        "mode": "live",
+        "project_id": "greek-yogurt-ceo-live",
+        "run_type": "prototype_build",
+        "allow_file_writes": True,
+        "allow_safe_commands": False,
+        "allow_ceo_live": True,
+        "max_cost_usd": 0.25,
+    }
+    approved_payload = approve_required(client, payload)
+    response = client.post("/api/runs", json=approved_payload)
     assert response.status_code == 200
     payload = response.json()
     ceo_event = next(event for event in payload["events"] if event["agent_name"] == "CEO Agent")
@@ -143,19 +158,18 @@ def test_invalid_live_file_action_json_falls_back_without_crashing(client, monke
     enable_live(monkeypatch)
     monkeypatch.setattr("app.orchestration.execution_engine.run_llm_agent", invalid_file_json_runner)
 
-    response = client.post(
-        "/api/runs",
-        json={
-            "command": PROTOTYPE_COMMAND,
-            "mode": "live",
-            "project_id": "greek-yogurt-invalid-json",
-            "run_type": "prototype_build",
-            "allow_file_writes": True,
-            "allow_safe_commands": True,
-            "allow_ceo_live": False,
-            "max_cost_usd": 0.25,
-        },
-    )
+    payload = {
+        "command": PROTOTYPE_COMMAND,
+        "mode": "live",
+        "project_id": "greek-yogurt-invalid-json",
+        "run_type": "prototype_build",
+        "allow_file_writes": True,
+        "allow_safe_commands": True,
+        "allow_ceo_live": False,
+        "max_cost_usd": 0.25,
+    }
+    approved_payload = approve_required(client, payload)
+    response = client.post("/api/runs", json=approved_payload)
     assert response.status_code == 200
     payload = response.json()
     assert "website/app.py" in payload["project_files_created"]
@@ -167,18 +181,17 @@ def test_live_budget_limit_blocks_run_safely(client, monkeypatch):
     enable_live(monkeypatch)
     monkeypatch.setattr("app.orchestration.execution_engine.run_llm_agent", fake_live_runner)
 
-    response = client.post(
-        "/api/runs",
-        json={
-            "command": PROTOTYPE_COMMAND,
-            "mode": "live",
-            "project_id": "greek-yogurt-budget",
-            "run_type": "prototype_build",
-            "allow_file_writes": True,
-            "allow_safe_commands": True,
-            "allow_ceo_live": False,
-            "max_cost_usd": 0.0001,
-        },
-    )
+    payload = {
+        "command": PROTOTYPE_COMMAND,
+        "mode": "live",
+        "project_id": "greek-yogurt-budget",
+        "run_type": "prototype_build",
+        "allow_file_writes": True,
+        "allow_safe_commands": True,
+        "allow_ceo_live": False,
+        "max_cost_usd": 0.0001,
+    }
+    approved_payload = approve_required(client, payload)
+    response = client.post("/api/runs", json=approved_payload)
     assert response.status_code == 400
     assert "exceeds request max_cost_usd" in response.text

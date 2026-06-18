@@ -21,6 +21,7 @@ class RunCreate(BaseModel):
     allow_file_writes: bool = False
     allow_safe_commands: bool = False
     max_cost_usd: float = Field(default=0.25, gt=0, le=5)
+    approval_ids: list[str] = Field(default_factory=list)
 
 
 class AgentInfo(BaseModel):

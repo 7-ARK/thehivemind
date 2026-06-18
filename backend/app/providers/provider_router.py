@@ -8,6 +8,8 @@ from app.providers.mock_provider import MockProvider
 from app.providers.openai_provider import OpenAIProvider
 from app.providers.openrouter_provider import OpenRouterProvider
 from app.storage.usage_store import UsageStore
+from app.usage_sync.reconciliation_service import store_provider_response_usage
+from app.usage_sync.openrouter_usage_sync import sync_openrouter_generation
 
 
 PROVIDERS = {
@@ -88,6 +90,37 @@ async def generate_with_provider(
             request_type=request_type,
             metadata={"effective_provider": effective_provider, "project_id": project_id, **response.raw_metadata},
         )
+        if mode == "live":
+            store_provider_response_usage(
+                provider=provider,
+                model=response.model,
+                run_id=run_id,
+                project_id=project_id,
+                agent_name=agent_name,
+                request_id=usage_log_id,
+                response_id=response.raw_metadata.get("response_id"),
+                generation_id=response.raw_metadata.get("generation_id"),
+                requested_model=model,
+                actual_model=response.model,
+                openrouter_provider_name=response.raw_metadata.get("effective_provider"),
+                input_tokens=response.input_tokens,
+                output_tokens=response.output_tokens,
+                cached_tokens=response.cached_tokens,
+                reasoning_tokens=response.raw_metadata.get("reasoning_tokens"),
+                safety_estimated_cost_usd=response.estimated_cost_usd,
+                provider_reported_cost_usd=response.raw_metadata.get("provider_reported_cost_usd"),
+                raw=response.raw_metadata,
+                settings=settings,
+            )
+            if provider == "openrouter" and response.raw_metadata.get("generation_id"):
+                await sync_openrouter_generation(
+                    generation_id=response.raw_metadata["generation_id"],
+                    run_id=run_id,
+                    project_id=project_id,
+                    agent_name=agent_name,
+                    requested_model=model,
+                    settings=settings,
+                )
         return response, usage_log_id
     except HTTPException:
         raise

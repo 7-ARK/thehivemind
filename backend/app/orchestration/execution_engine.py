@@ -93,6 +93,16 @@ class ExecutionEngine:
         started_at = datetime.now(UTC)
         max_cost = min(max_cost_usd or self.settings.max_cost_per_run_usd, self.settings.max_cost_per_run_usd)
         memory = retrieve_memory(command)
+        if run_type == "provider_test":
+            return await self._execute_provider_test(
+                command=command,
+                mode=mode,
+                project_id=project_id,
+                max_cost=max_cost,
+                run_id=run_id,
+                started_at=started_at,
+                memory=memory,
+            )
         if run_type in {"prototype_build", "continuation"}:
             return await self._execute_prototype_build(
                 command=command,
@@ -340,6 +350,111 @@ class ExecutionEngine:
         )
         self._save_run(record)
         self._update_memory(record, model_selection)
+        return record
+
+    async def _execute_provider_test(
+        self,
+        *,
+        command: str,
+        mode: str,
+        project_id: str | None,
+        max_cost: float,
+        run_id: str,
+        started_at: datetime,
+        memory,
+    ) -> RunRecord:
+        if mode != "live":
+            raise HTTPException(status_code=400, detail="provider_test requires mode=live.")
+        model = self.settings.cheap_search_worker_model
+        metadata = get_model_metadata(model)
+        messages = [
+            {"role": "system", "content": "You are a tiny provider connectivity test. Reply with exactly: live test ok"},
+            {"role": "user", "content": command},
+        ]
+        response, _usage_log_id = await generate_with_provider(
+            provider=metadata.provider,
+            model=model,
+            mode="live",
+            messages=messages,
+            max_output_tokens=min(20, self.settings.max_output_tokens_per_call),
+            temperature=0,
+            run_id=run_id,
+            task_id=f"{run_id}:provider_test",
+            agent_name="Provider Test Agent",
+            agent_role="Connectivity and usage validation",
+            project_id=project_id,
+            request_type="provider_test",
+            settings=self.settings,
+            usage_store=self.usage,
+        )
+        cost = response.estimated_cost_usd
+        if cost > max_cost:
+            raise HTTPException(status_code=400, detail=f"Provider test cost ${cost:.6f} exceeds request max_cost_usd=${max_cost:.2f}.")
+        completed_at = datetime.now(UTC)
+        event = RunEvent(
+            timestamp=completed_at,
+            run_id=run_id,
+            agent_name="Provider Test Agent",
+            agent_role="Connectivity and usage validation",
+            status="completed",
+            action_summary="Ran one tiny live provider test",
+            input_summary="Tiny live provider test with no files or commands.",
+            output_summary=response.text[:500],
+            model_used=response.model,
+            provider=response.provider,
+            estimated_input_tokens=response.input_tokens,
+            estimated_output_tokens=response.output_tokens,
+            estimated_tokens=response.input_tokens + response.output_tokens,
+            estimated_cost_usd=cost,
+            estimated_cost=cost,
+        )
+        record = RunRecord(
+            run_id=run_id,
+            command=command,
+            mode=mode,
+            project_id=project_id,
+            run_type="provider_test",
+            status="completed",
+            started_at=started_at,
+            completed_at=completed_at,
+            events=[event],
+            agents=[
+                AgentInfo(
+                    name="Provider Test Agent",
+                    role="Connectivity and usage validation",
+                    assigned_model=response.model,
+                    status="completed",
+                    latest_action="Ran one tiny live provider test",
+                    completed_work=["Captured provider response usage when returned by provider."],
+                )
+            ],
+            task_graph=build_default_task_graph(),
+            metrics=RunMetrics(
+                total_estimated_tokens=response.input_tokens + response.output_tokens,
+                total_estimated_cost_usd=cost,
+                agents_used=1,
+                tasks_completed=1,
+                run_duration_seconds=round((completed_at - started_at).total_seconds(), 3),
+                memory_chunks_retrieved=len(memory.retrieved_snippets),
+            ),
+            memory=memory,
+            final_output=FinalOutput(
+                summary="Provider test completed without file writes or command execution.",
+                what_was_done=["Ran one tiny live provider call.", "Captured provider response usage if available."],
+                recommended_next_actions=["Review Usage & Costs for provider-response usage and official sync status."],
+                generated_artifacts=[],
+            ),
+            artifacts=[],
+            project_files_created=[],
+            project_files_updated=[],
+            commands_run=[],
+            usage_summary={
+                "provider_response_cost_usd": response.raw_metadata.get("provider_reported_cost_usd"),
+                "provider_response_tokens": response.input_tokens + response.output_tokens,
+                "official_usage_sync": "scheduled_after_live_run",
+            },
+        )
+        self._save_run(record)
         return record
 
     async def _execute_prototype_build(

@@ -5,9 +5,45 @@ from fastapi import APIRouter, HTTPException, Query, Response
 from app.analytics.usage_analytics import UsageAnalytics
 from app.core.config import get_settings
 from app.storage.usage_store import UsageStore
+from app.usage_sync.real_usage_service import RealUsageService
 
 
 router = APIRouter(prefix="/api/usage", tags=["usage"])
+
+
+@router.get("/real/summary")
+def real_usage_summary(include_dev_estimates: bool = Query(False)) -> dict:
+    return RealUsageService().summary(include_dev_estimates)
+
+
+@router.get("/real/runs")
+def real_usage_runs(include_dev_estimates: bool = Query(False)) -> dict:
+    return RealUsageService().runs(include_dev_estimates)
+
+
+@router.get("/real/models")
+def real_usage_models(include_dev_estimates: bool = Query(False)) -> dict:
+    return RealUsageService().models(include_dev_estimates)
+
+
+@router.get("/real/providers")
+def real_usage_providers(include_dev_estimates: bool = Query(False)) -> dict:
+    return RealUsageService().providers(include_dev_estimates)
+
+
+@router.get("/real/openrouter-breakdown")
+def real_usage_openrouter_breakdown() -> dict:
+    return RealUsageService().openrouter_breakdown()
+
+
+@router.get("/real/provider-responses")
+def real_usage_provider_responses(include_dev_estimates: bool = Query(False), limit: int = Query(100, ge=1, le=500)) -> dict:
+    return {"records": RealUsageService().provider_responses(include_dev_estimates, limit)}
+
+
+@router.get("/official/account-billing")
+def official_account_billing() -> dict:
+    return RealUsageService().account_billing()
 
 
 @router.get("/summary")
