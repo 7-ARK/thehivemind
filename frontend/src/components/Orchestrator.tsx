@@ -1,8 +1,9 @@
-import React, { useMemo, useState } from "react";
-import { createRun, getProjectChanges, getRunCommands } from "../lib/api";
+import React, { useEffect, useMemo, useState } from "react";
+import { createRun, decideApproval, getProjectChanges, getRunCommands } from "../lib/api";
 import { collectRunCommands, collectRunFiles, FileSummaryItem } from "../lib/runSummary";
-import { CommandResult, CreateRunPayload, ProjectChange, RunEvent, RunResult } from "../types";
+import { ApprovalRequiredResponse, CommandResult, CreateRunPayload, ProjectChange, RunEvent, RunResult } from "../types";
 import MarkdownView from "./MarkdownView";
+import ApprovalPanel from "./approvals/ApprovalPanel";
 import {
   AlertTriangle,
   ArrowRight,
@@ -37,6 +38,9 @@ export default function Orchestrator({ onWorkflowCompleted, onOpenProject, onOpe
   const [maxCostUsd, setMaxCostUsd] = useState("0.25");
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<RunResult | null>(null);
+  const [approvalRequired, setApprovalRequired] = useState<ApprovalRequiredResponse | null>(null);
+  const [approvalPayload, setApprovalPayload] = useState<CreateRunPayload | null>(null);
+  const [decidingApprovalId, setDecidingApprovalId] = useState<string | null>(null);
   const [resultCommands, setResultCommands] = useState<CommandResult[]>([]);
   const [resultChanges, setResultChanges] = useState<ProjectChange[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -55,15 +59,30 @@ export default function Orchestrator({ onWorkflowCompleted, onOpenProject, onOpe
     [allowCeoLive, allowFileWrites, allowSafeCommands, command, maxCostUsd, mode, projectId, runType],
   );
 
-  const handleRun = async () => {
-    if (running || !payload.command) return;
+  useEffect(() => {
+    if (runType !== "provider_test") return;
+    setMode("live");
+    setAllowFileWrites(false);
+    setAllowSafeCommands(false);
+    setAllowCeoLive(false);
+    setMaxCostUsd("0.01");
+  }, [runType]);
+
+  const executeRun = async (runPayload: CreateRunPayload) => {
+    if (running || !runPayload.command) return;
     setRunning(true);
     setError(null);
     setResult(null);
+    setApprovalRequired(null);
     setResultCommands([]);
     setResultChanges([]);
     try {
-      const run = await createRun(payload);
+      const run = await createRun(runPayload);
+      if (run.status === "approval_required") {
+        setApprovalRequired(run);
+        setApprovalPayload(runPayload);
+        return;
+      }
       setResult(run);
       const [commandsResult, changesResult] = await Promise.allSettled([
         getRunCommands(run.run_id),
@@ -73,12 +92,37 @@ export default function Orchestrator({ onWorkflowCompleted, onOpenProject, onOpe
       if (changesResult.status === "fulfilled") {
         setResultChanges(changesResult.value.changes.filter((change) => change.run_id === run.run_id));
       }
-      onWorkflowCompleted(run.project_id ?? payload.project_id ?? undefined, run.run_id);
+      onWorkflowCompleted(run.project_id ?? runPayload.project_id ?? undefined, run.run_id);
     } catch (err: any) {
       setError(normalizeError(err?.message));
     } finally {
       setRunning(false);
     }
+  };
+
+  const handleRun = () => executeRun(payload);
+
+  const handleApprovalDecision = async (approvalId: string, decision: "approved" | "rejected") => {
+    if (!approvalRequired) return;
+    setDecidingApprovalId(approvalId);
+    setError(null);
+    try {
+      const updated = await decideApproval(approvalId, decision, decision === "approved" ? "Approved from Command Console." : "Rejected from Command Console.");
+      setApprovalRequired({
+        ...approvalRequired,
+        approval_requests: approvalRequired.approval_requests.map((approval) => (approval.id === approvalId ? updated : approval)),
+      });
+    } catch (err: any) {
+      setError(normalizeError(err?.message));
+    } finally {
+      setDecidingApprovalId(null);
+    }
+  };
+
+  const handleRunWithApproval = () => {
+    if (!approvalRequired || !approvalPayload) return;
+    const approvedIds = approvalRequired.approval_requests.filter((approval) => approval.status === "approved").map((approval) => approval.id);
+    executeRun({ ...approvalPayload, approval_ids: approvedIds });
   };
 
   const fileSummary = result ? collectRunFiles(result, resultChanges) : { created: [], updated: [] };
@@ -118,6 +162,9 @@ export default function Orchestrator({ onWorkflowCompleted, onOpenProject, onOpe
                 placeholder="Tell TheHiveMind what to build, research, automate, or continue..."
                 className="mt-2 min-h-32 w-full bg-[#141517] border border-[#2c2e33] rounded text-[#e9ecef] text-sm px-3.5 py-3 outline-none focus:ring-1 focus:ring-[#20c997]/60 resize-y"
               />
+              <p className="mt-2 text-[10px] text-[#909296] leading-relaxed">
+                Risky requests in text are detected, but typing them is not approval. Live mode, GPT-5.5, deploys, installs, payments, and external actions require approval cards.
+              </p>
               <div className="mt-2 flex flex-wrap gap-2">
                 <ExampleButton onClick={() => setCommand(EXAMPLE_CREATE)}>Create Greek yogurt website prototype</ExampleButton>
                 <ExampleButton onClick={() => setCommand(EXAMPLE_CONTINUE)}>Continue and add order status page</ExampleButton>
@@ -141,8 +188,9 @@ export default function Orchestrator({ onWorkflowCompleted, onOpenProject, onOpe
                 </select>
               </Field>
 
-              <Field label="Run Type" helper="prototype_build starts or refreshes project files; continuation continues an existing project workspace.">
+              <Field label="Run Type" helper="provider_test runs one tiny live call with no files or commands; prototype_build and continuation use project files.">
                 <select value={runType} onChange={(event) => setRunType(event.target.value as CreateRunPayload["run_type"])} disabled={running} className="control-input">
+                  <option value="provider_test">provider_test</option>
                   <option value="prototype_build">prototype_build</option>
                   <option value="business_launch_plan">business_launch_plan</option>
                   <option value="continuation">continuation</option>
@@ -183,6 +231,15 @@ export default function Orchestrator({ onWorkflowCompleted, onOpenProject, onOpe
             )}
 
             {error && <ErrorCard>{error}</ErrorCard>}
+
+            {approvalRequired && (
+              <ApprovalPanel
+                approvals={approvalRequired.approval_requests}
+                decidingId={decidingApprovalId}
+                onDecision={handleApprovalDecision}
+                onRunWithApproval={handleRunWithApproval}
+              />
+            )}
 
             <button
               id="run-orchestration-btn"

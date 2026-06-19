@@ -104,6 +104,84 @@ export interface SearchUsageType {
   searchByAgent: Record<string, number>;
 }
 
+export interface OfficialUsageProviderStatus {
+  enabled: boolean;
+  admin_key_configured?: boolean;
+  management_key_configured?: boolean;
+  credentials_configured?: boolean;
+  project_id?: string;
+  dataset?: string;
+  location?: string;
+  tables_found?: number;
+  last_synced_at?: string | null;
+  status: string;
+  message?: string | null;
+}
+
+export interface OfficialUsageReconciliation {
+  provider: string;
+  range: string;
+  scope: string;
+  safety_estimated_cost_usd: number;
+  provider_reported_cost_usd?: number | null;
+  status: "mock_only" | "estimated" | "provider_reported" | "reconciled" | "unavailable" | "error";
+  last_synced_at?: string | null;
+  notes: string[];
+}
+
+export interface OfficialUsageSummary {
+  range: string;
+  status: Record<string, OfficialUsageProviderStatus>;
+  reconciliation: OfficialUsageReconciliation[];
+}
+
+export interface RealUsageSummary {
+  run_level_provider_cost_usd: number;
+  run_level_tokens: number;
+  run_level_calls: number;
+  official_billing_cost_usd: number;
+  account_balance_records: number;
+  providers: string[];
+  dev_estimates_hidden: boolean;
+  note: string;
+}
+
+export interface RealProviderUsageRecord {
+  id: string;
+  run_id?: string | null;
+  project_id?: string | null;
+  provider: string;
+  requested_model?: string | null;
+  actual_model?: string | null;
+  provider_name?: string | null;
+  agent_name?: string | null;
+  input_tokens: number;
+  output_tokens: number;
+  cached_tokens: number;
+  reasoning_tokens: number;
+  total_tokens: number;
+  provider_reported_cost_usd?: number | null;
+  source: "provider_response" | "provider_generation_lookup" | "mock_dev_only" | "safety_estimate_dev_only";
+  sync_status?: string | null;
+  timestamp?: string | null;
+}
+
+export interface RealOfficialBillingRecord {
+  id: string;
+  provider: string;
+  source: "provider_official_billing" | "provider_account_balance";
+  scope: string;
+  project_id?: string | null;
+  service?: string | null;
+  sku?: string | null;
+  provider_reported_cost_usd?: number | null;
+  currency: string;
+  usage_start_time?: string | null;
+  usage_end_time?: string | null;
+  created_at: string;
+  note: string;
+}
+
 export interface OrchestratePlanStep {
   step: number;
   title: string;
@@ -218,11 +296,40 @@ export interface CreateRunPayload {
   command: string;
   mode: "mock" | "live";
   project_id?: string | null;
-  run_type: "business_launch_plan" | "prototype_build" | "continuation";
+  run_type: "business_launch_plan" | "prototype_build" | "continuation" | "provider_test";
   allow_file_writes: boolean;
   allow_safe_commands: boolean;
   allow_ceo_live: boolean;
   max_cost_usd: number;
+  approval_ids?: string[];
+}
+
+export interface ApprovalRequest {
+  id: string;
+  run_id?: string | null;
+  project_id?: string | null;
+  command: string;
+  status: "pending" | "approved" | "rejected" | "expired";
+  risk_level: "low" | "medium" | "high" | "critical";
+  approval_type: string;
+  title: string;
+  reason: string;
+  requested_action: string;
+  estimated_cost_usd?: number | null;
+  model?: string | null;
+  provider?: string | null;
+  created_at: string;
+  decided_at?: string | null;
+  decision_reason?: string | null;
+  metadata: Record<string, unknown>;
+}
+
+export interface ApprovalRequiredResponse {
+  status: "approval_required";
+  run_id: string;
+  project_id?: string | null;
+  command: string;
+  approval_requests: ApprovalRequest[];
 }
 
 export interface RunEvent {
@@ -301,3 +408,5 @@ export interface RunResult {
   usage_summary: RunUsageSummary;
   memory_updates: string[];
 }
+
+export type RunStartResponse = RunResult | ApprovalRequiredResponse;

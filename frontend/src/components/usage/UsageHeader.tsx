@@ -8,6 +8,7 @@ interface UsageHeaderProps {
   onRefresh: () => void;
   onSeedDemo: () => Promise<void>;
   isRefreshing: boolean;
+  showSeedDemo?: boolean;
 }
 
 export default function UsageHeader({
@@ -16,6 +17,7 @@ export default function UsageHeader({
   onRefresh,
   onSeedDemo,
   isRefreshing,
+  showSeedDemo = false,
 }: UsageHeaderProps) {
   const [seeding, setSeeding] = useState(false);
   const [seedSuccess, setSeedSuccess] = useState(false);
@@ -95,16 +97,18 @@ export default function UsageHeader({
             Export CSV
           </a>
 
-          <button
-            id="seed-demo-btn"
-            onClick={handleSeed}
-            disabled={seeding}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-[#25262b] hover:bg-[#20c997]/5 border border-[#2c2e33] hover:border-[#20c997]/50 text-[#e9ecef] hover:text-[#20c997] rounded transition-all cursor-pointer"
-          >
-            <Database className={`w-3.5 h-3.5 ${seeding ? "animate-bounce text-[#20c997]" : "text-[#20c997]"}`} />
-            {seeding ? "Seeding..." : seedSuccess ? "Seeded!" : "Seed Telemetry"}
-            {seedSuccess && <CheckCircle className="w-3 h-3 text-emerald-400" />}
-          </button>
+          {showSeedDemo && (
+            <button
+              id="seed-demo-btn"
+              onClick={handleSeed}
+              disabled={seeding}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-[#25262b] hover:bg-[#20c997]/5 border border-[#2c2e33] hover:border-[#20c997]/50 text-[#e9ecef] hover:text-[#20c997] rounded transition-all cursor-pointer"
+            >
+              <Database className={`w-3.5 h-3.5 ${seeding ? "animate-bounce text-[#20c997]" : "text-[#20c997]"}`} />
+              {seeding ? "Seeding..." : seedSuccess ? "Seeded!" : "Seed Telemetry"}
+              {seedSuccess && <CheckCircle className="w-3 h-3 text-emerald-400" />}
+            </button>
+          )}
         </div>
       </div>
     </div>

@@ -32,9 +32,6 @@ export default function BudgetHealthCard({ budget }: BudgetHealthCardProps) {
 
   return (
     <div id="budget-health-card" className="bg-[#1a1b1e] border border-[#2c2e33] rounded-lg p-5 mb-6 relative overflow-hidden">
-      {/* Background decoration */}
-      <div className="absolute right-0 top-0 translate-x-12 -translate-y-12 w-48 h-48 rounded-full bg-[#20c997]/5 blur-[80px] pointer-events-none" />
-
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex items-start gap-3">
           <div className="p-2.5 bg-[#141517] border border-[#2c2e33] rounded shrink-0">
@@ -50,7 +47,7 @@ export default function BudgetHealthCard({ budget }: BudgetHealthCardProps) {
               </span>
             </div>
             <h2 className="text-lg font-medium text-[#e9ecef] mt-1 flex items-baseline gap-1.5">
-              <span className="font-semibold">Spent ${spent.toFixed(4)}</span>
+              <span className="font-semibold">Recorded / simulated ${spent.toFixed(4)}</span>
               <span className="text-xs text-[#909296]">of ${monthlyBudget.toFixed(2)} monthly quota</span>
             </h2>
             <p className="text-xs text-[#909296] mt-1 flex items-center gap-1.5">
@@ -63,7 +60,7 @@ export default function BudgetHealthCard({ budget }: BudgetHealthCardProps) {
         {/* Detailed stats columns */}
         <div className="flex items-center gap-8 text-right md:ml-auto">
           <div>
-            <div className="text-xs text-[#909296]">Spent</div>
+            <div className="text-xs text-[#909296]">Recorded / Sim</div>
             <div className="text-sm font-mono text-[#e9ecef] font-semibold mt-0.5">{percentUsed}%</div>
           </div>
           <div className="border-r border-[#2c2e33] h-8" />

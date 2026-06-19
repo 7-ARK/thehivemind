@@ -9,6 +9,10 @@ import {
   BudgetStatus,
   SearchUsageType,
   TokenBreakdownType,
+  OfficialUsageSummary,
+  RealUsageSummary,
+  RealProviderUsageRecord,
+  RealOfficialBillingRecord,
   OrchestrationResult,
   CompletedAgentStep,
   OrchestratePlanStep,
@@ -19,6 +23,8 @@ import {
   CommandResult,
   ArtifactRecord,
   CreateRunPayload,
+  ApprovalRequest,
+  RunStartResponse,
   RunResult,
 } from "../types";
 
@@ -353,6 +359,31 @@ export async function getUsageTokens(range: string = "30d"): Promise<TokenBreakd
   );
 }
 
+export async function getOfficialUsageSummary(range: string = "30d"): Promise<OfficialUsageSummary> {
+  return request<OfficialUsageSummary>(`/api/official-usage/summary?range=${encodeURIComponent(range)}`);
+}
+
+export async function syncOfficialUsage(range: string = "30d"): Promise<OfficialUsageSummary> {
+  const payload = await request<{ status: OfficialUsageSummary["status"]; synced: Record<string, number> }>(`/api/official-usage/sync?range=${encodeURIComponent(range)}`, {
+    method: "POST",
+  });
+  const summary = await getOfficialUsageSummary(range);
+  return { ...summary, status: payload.status };
+}
+
+export async function getRealUsageSummary(): Promise<RealUsageSummary> {
+  return request<RealUsageSummary>("/api/usage/real/summary");
+}
+
+export async function getRealProviderResponses(limit: number = 100): Promise<RealProviderUsageRecord[]> {
+  const payload = await request<{ records: RealProviderUsageRecord[] }>(`/api/usage/real/provider-responses?limit=${limit}`);
+  return payload.records;
+}
+
+export async function getRealAccountBilling(): Promise<{ records: RealOfficialBillingRecord[]; note: string }> {
+  return request<{ records: RealOfficialBillingRecord[]; note: string }>("/api/usage/official/account-billing");
+}
+
 export async function seedDemoUsage(): Promise<{ status: string; message: string }> {
   const payload = await request<{ inserted: number }>("/api/usage/seed-demo", { method: "POST" });
   return {
@@ -377,14 +408,28 @@ export async function submitOrchestration(command: string): Promise<Orchestratio
     max_cost_usd: 0.25,
   });
 
+  if (isApprovalRequiredResponse(run)) {
+    throw new Error("Approval is required before this orchestration can run.");
+  }
   return mapRunToOrchestration(run);
 }
 
-export async function createRun(payload: CreateRunPayload): Promise<RunResult> {
-  return request<RunResult>("/api/runs", {
+export async function createRun(payload: CreateRunPayload): Promise<RunStartResponse> {
+  return request<RunStartResponse>("/api/runs", {
     method: "POST",
     body: JSON.stringify(payload),
   });
+}
+
+export async function decideApproval(approvalId: string, decision: "approved" | "rejected", reason?: string): Promise<ApprovalRequest> {
+  return request<ApprovalRequest>(`/api/approvals/${encodeURIComponent(approvalId)}/decision`, {
+    method: "POST",
+    body: JSON.stringify({ decision, reason }),
+  });
+}
+
+export async function getPendingApprovals(): Promise<ApprovalRequest[]> {
+  return request("/api/approvals/pending");
 }
 
 export async function getRun(runId: string): Promise<RunResult> {
@@ -433,6 +478,10 @@ export async function getRunCommands(runId: string): Promise<CommandResult[]> {
 
 export async function getRunArtifacts(runId: string): Promise<ArtifactRecord[]> {
   return request(`/api/runs/${encodeURIComponent(runId)}/artifacts`);
+}
+
+function isApprovalRequiredResponse(run: RunStartResponse): run is import("../types").ApprovalRequiredResponse {
+  return "approval_requests" in run && run.status === "approval_required";
 }
 
 function encodeProjectPath(path: string): string {

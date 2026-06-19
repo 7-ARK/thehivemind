@@ -202,6 +202,12 @@ Check usage:
 curl http://127.0.0.1:8000/api/usage/summary
 ```
 
+## Official Provider Usage Sync
+
+TheHiveMind also exposes read-only official usage sync endpoints under `/api/official-usage/*` and real provider-only usage endpoints under `/api/usage/real/*`. Mock/dev safety estimates are hidden from real dashboard totals by default. OpenRouter credits are shown as account-level balance data, not run-level spend. Official sync does not make live model calls and does not bypass approval gates.
+
+See `docs/official_provider_usage_sync.md` for setup and verification.
+
 ## Environment Variables
 
 Copy `.env.example` to `.env` if needed. The repository includes a local placeholder `.env`, but `.env` is ignored by Git.
@@ -210,9 +216,19 @@ Copy `.env.example` to `.env` if needed. The repository includes a local placeho
 APP_ENV=development
 MOCK_MODE=true
 OPENAI_API_KEY=
+OPENAI_ADMIN_API_KEY=
+ENABLE_OPENAI_OFFICIAL_USAGE_SYNC=false
 OPENAI_TRACKING_ID=
 GOOGLE_API_KEY=
+GEMINI_API_KEY=
+GOOGLE_CLOUD_PROJECT_ID=
+GOOGLE_BILLING_BIGQUERY_DATASET=
+GOOGLE_BILLING_LOCATION=US
+GOOGLE_APPLICATION_CREDENTIALS=
+ENABLE_GOOGLE_BILLING_SYNC=false
 OPENROUTER_API_KEY=
+OPENROUTER_MANAGEMENT_KEY=
+ENABLE_OPENROUTER_OFFICIAL_USAGE_SYNC=false
 CEO_FALLBACK_MODEL=gpt-5.4-nano
 CEO_FALLBACK_PROVIDER=openai
 DATABASE_URL=sqlite:///./thehivemind.db

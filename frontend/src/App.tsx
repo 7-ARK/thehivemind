@@ -277,13 +277,13 @@ export default function App() {
 
         {/* 3. SCROLLABLE CONTENTS CONTAINER */}
         <main className="flex-1 p-6 overflow-y-auto w-full max-w-7xl mx-auto">
-          {activeTab === "orchestrator" && (
+          <div className={activeTab === "orchestrator" ? "block" : "hidden"}>
             <Orchestrator
               onWorkflowCompleted={handleWorkflowCompleted}
               onOpenProject={handleOpenProject}
               onOpenRunDetail={handleOpenRunDetail}
             />
-          )}
+          </div>
 
           {activeTab === "reports" && (
             <UsageDashboard onRefreshTrigger={refreshTrigger} />
