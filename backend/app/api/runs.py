@@ -39,6 +39,7 @@ async def start_run(payload: RunCreate) -> RunStartResponse:
         allow_ceo_live=payload.allow_ceo_live,
         allow_file_writes=payload.allow_file_writes,
         allow_safe_commands=payload.allow_safe_commands,
+        allow_web_search=payload.allow_web_search,
         max_cost_usd=payload.max_cost_usd,
     )
     if record.mode == "live":
@@ -52,8 +53,14 @@ def _apply_prompt_safety_overrides(payload: RunCreate) -> RunCreate:
     updates = {}
     if any(phrase in command for phrase in ("do not create files", "don't create files", "no file writes", "do not write files")):
         updates["allow_file_writes"] = False
+    if any(phrase in command for phrase in ("do not update files", "don't update files", "research only", "only research")):
+        updates["allow_file_writes"] = False
+        updates["run_type"] = "research_only"
+        updates["allow_safe_commands"] = False
     if any(phrase in command for phrase in ("do not run commands", "don't run commands", "no commands", "do not execute commands")):
         updates["allow_safe_commands"] = False
+    if any(phrase in command for phrase in ("do not search", "don't search", "no web search", "do not browse")):
+        updates["allow_web_search"] = False
     return payload.model_copy(update=updates) if updates else payload
 
 
@@ -126,6 +133,28 @@ def get_run_commands(run_id: str) -> list[CommandResult]:
     if run_commands_path.exists():
         return [CommandResult.model_validate(item) for item in json.loads(run_commands_path.read_text(encoding="utf-8"))]
     return WorkspaceManager().read_commands(run_id)
+
+
+@router.get("/{run_id}/model-selection")
+def get_run_model_selection(run_id: str) -> dict:
+    run = RunManager().get_run(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+    if run.model_selection:
+        return {"run_id": run_id, "model_selection": run.model_selection}
+    artifact = _artifact_json_by_name(run_id, "model_selection.json")
+    return {"run_id": run_id, "model_selection": artifact or {}}
+
+
+@router.get("/{run_id}/agent-plan")
+def get_run_agent_plan(run_id: str) -> dict:
+    run = RunManager().get_run(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+    if run.agent_plan:
+        return {"run_id": run_id, "agent_plan": run.agent_plan}
+    artifact = _artifact_json_by_name(run_id, "agent_plan.json")
+    return {"run_id": run_id, "agent_plan": artifact or {}}
 
 
 def _hydrate_run_summary(run: RunRecord) -> RunRecord:
@@ -210,3 +239,15 @@ def _unique_paths(paths: list[str]) -> list[str]:
             seen.add(path)
             result.append(path)
     return result
+
+
+def _artifact_json_by_name(run_id: str, name: str) -> dict | None:
+    store = ArtifactStore()
+    for artifact in store.list_artifacts(run_id):
+        if artifact.name != name:
+            continue
+        try:
+            return json.loads(store.get_artifact(run_id, artifact.id).content)
+        except Exception:
+            return None
+    return None

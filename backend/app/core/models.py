@@ -9,7 +9,7 @@ from app.workspace.schemas import WorkspaceSummary
 
 RunMode = Literal["mock", "live"]
 RunStatus = Literal["queued", "planning", "selecting_models", "executing_workers", "reviewing", "running", "completed", "failed"]
-EventStatus = Literal["pending", "running", "started", "completed", "failed", "blocked", "skipped"]
+EventStatus = Literal["pending", "running", "started", "completed", "completed_with_warnings", "validation_failed", "failed", "blocked", "skipped"]
 
 
 class RunCreate(BaseModel):
@@ -20,6 +20,7 @@ class RunCreate(BaseModel):
     allow_ceo_live: bool = False
     allow_file_writes: bool = False
     allow_safe_commands: bool = False
+    allow_web_search: bool = False
     max_cost_usd: float = Field(default=0.25, gt=0, le=5)
     approval_ids: list[str] = Field(default_factory=list)
 
@@ -132,3 +133,5 @@ class RunRecord(BaseModel):
     commands_run: list[dict] = Field(default_factory=list)
     usage_summary: dict = Field(default_factory=dict)
     memory_updates: list[str] = Field(default_factory=list)
+    agent_plan: dict = Field(default_factory=dict)
+    model_selection: dict = Field(default_factory=dict)

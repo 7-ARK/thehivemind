@@ -2,6 +2,7 @@ import subprocess
 import sys
 import time
 import json
+import traceback
 from pathlib import Path
 
 from app.core.config import Settings
@@ -59,6 +60,8 @@ class SafeCommandRunner:
                 duration_ms=0,
                 allowed=False,
                 blocked_reason=reason,
+                executable_command=command,
+                resolved_cwd=str(command_cwd),
             )
 
         start = time.perf_counter()
@@ -81,6 +84,10 @@ class SafeCommandRunner:
                 stderr=completed.stderr[-4000:],
                 duration_ms=duration_ms,
                 allowed=True,
+                executable_command=executable_command,
+                resolved_cwd=str(command_cwd),
+                error_type=_classify_process_error(command, completed.stderr, completed.returncode) if completed.returncode != 0 else None,
+                error_message=f"Command exited with code {completed.returncode}." if completed.returncode != 0 else None,
             )
         except subprocess.TimeoutExpired as exc:
             duration_ms = int((time.perf_counter() - start) * 1000)
@@ -92,6 +99,25 @@ class SafeCommandRunner:
                 stderr=(exc.stderr or "Command timed out.")[-4000:] if isinstance(exc.stderr, str) else "Command timed out.",
                 duration_ms=duration_ms,
                 allowed=True,
+                executable_command=executable_command,
+                resolved_cwd=str(command_cwd),
+                error_type="timeout",
+                error_message=f"Command timed out after {self.timeout_seconds} seconds.",
+            )
+        except Exception as exc:
+            duration_ms = int((time.perf_counter() - start) * 1000)
+            result = CommandResult(
+                command=command,
+                cwd=str(command_cwd.relative_to(root)),
+                exit_code=1,
+                stdout="",
+                stderr=traceback.format_exc()[-4000:],
+                duration_ms=duration_ms,
+                allowed=True,
+                executable_command=executable_command,
+                resolved_cwd=str(command_cwd),
+                error_type="environment_error",
+                error_message=str(exc),
             )
         return result
 
@@ -117,3 +143,12 @@ class SafeCommandRunner:
                 except Exception:
                     return False, "py_compile file arguments must be safe workspace-relative paths."
         return True, None
+
+
+def _classify_process_error(command: list[str], stderr: str, returncode: int) -> str:
+    lowered = stderr.lower()
+    if "keyboardinterrupt" in lowered or "watchfiles" in lowered or "runtime error" in lowered or returncode in {3221225786, -1073741510}:
+        return "environment_interruption"
+    if [part.lower() for part in command[:3]] == ["python", "-m", "py_compile"]:
+        return "validation_error"
+    return "command_runtime_error"

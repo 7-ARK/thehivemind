@@ -25,7 +25,7 @@ def evaluate_approval_needs(payload: RunCreate, run_id: str | None = None, setti
             )
         )
 
-    if payload.allow_ceo_live or _contains_any(command, ["use gpt-5.5", "gpt-5.5", "best ceo model", "most powerful model"]):
+    if payload.allow_ceo_live or _contains_positive_any(command, ["use gpt-5.5", "gpt-5.5", "best ceo model", "most powerful model"], ["do not use gpt-5.5", "don't use gpt-5.5", "no gpt-5.5"]):
         approvals.append(
             _approval(
                 payload,
@@ -155,7 +155,7 @@ def evaluate_approval_needs(payload: RunCreate, run_id: str | None = None, setti
     ]
 
     for approval_type, risk_level, title, reason, requested_action, keywords in keyword_rules:
-        if _contains_any(command, keywords):
+        if _contains_positive_any(command, keywords, _negative_phrases_for(approval_type)):
             approvals.append(
                 _approval(
                     payload,
@@ -205,6 +205,28 @@ def _approval(
 
 def _contains_any(value: str, keywords: list[str]) -> bool:
     return any(keyword in value for keyword in keywords)
+
+
+def _contains_positive_any(value: str, keywords: list[str], negative_phrases: list[str]) -> bool:
+    if any(phrase in value for phrase in negative_phrases):
+        return False
+    return _contains_any(value, keywords)
+
+
+def _negative_phrases_for(approval_type: str) -> list[str]:
+    phrases = {
+        "package_install": ["do not install packages", "don't install packages", "no package installs", "do not install dependencies"],
+        "deployment": ["do not deploy", "don't deploy", "no deploy", "no deployment"],
+        "external_api": ["no external actions", "do not call external api", "don't call external api", "do not use external actions"],
+        "web_search": ["do not search", "don't search", "no web search", "do not browse", "don't browse"],
+        "customer_messaging": ["do not send email", "don't send email", "do not send whatsapp", "don't send whatsapp", "no emails", "no whatsapp"],
+        "social_posting": ["do not post", "don't post", "no social posting"],
+        "payment_integration": ["do not add payment", "don't add payment", "no payment integration"],
+        "sensitive_file": ["do not edit .env", "don't edit .env", "do not expose secrets"],
+        "dangerous_command": ["do not run dangerous commands", "no dangerous commands"],
+        "large_overwrite": ["do not overwrite all", "don't overwrite all"],
+    }
+    return phrases.get(approval_type, [])
 
 
 def _dedupe(approvals: list[ApprovalRequest]) -> list[ApprovalRequest]:

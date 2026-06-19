@@ -7,6 +7,8 @@ from typing import Any
 
 from fastapi import HTTPException
 
+from app.agent_registry.planner_service import AgentPlannerService
+from app.agent_registry.schemas import AgentPlanRequest, AgentPlanResult
 from app.agents.business_agent import BusinessAgent
 from app.agents.ceo_agent import CEOAgent
 from app.agents.file_builder_agent import FileBuilderAgent
@@ -30,6 +32,10 @@ from app.projects.project_state import update_project_state
 from app.projects.project_workspace import ProjectWorkspaceManager
 from app.projects.schemas import ProjectWorkspaceSummary
 from app.providers.provider_router import generate_with_provider
+from app.search_tools.exa_client import run_exa_search
+from app.search_tools.schemas import SearchRequest, SearchResultPayload
+from app.search_tools.search_store import SearchLogStore
+from app.search_tools.source_formatter import mock_sources
 from app.storage.usage_store import UsageStore
 from app.workspace.command_runner import SafeCommandRunner
 from app.workspace.file_writer import WorkspaceFileWriter
@@ -40,6 +46,28 @@ from app.workspace.workspace_manager import WorkspaceManager
 RunResult = RunRecord
 
 
+def _selected_model_id(selected_models: dict[str, Any], agent_id: str, fallback: str) -> str:
+    value = selected_models.get(agent_id)
+    if isinstance(value, dict):
+        model_id = value.get("selected_model_id")
+        if isinstance(model_id, str) and model_id:
+            return model_id
+    return fallback
+
+
+def _command_event_status(command_results: list[CommandResult]) -> str:
+    if all(result.allowed and result.exit_code == 0 for result in command_results):
+        return "completed"
+    if any(result.allowed and result.exit_code != 0 for result in command_results):
+        return "validation_failed"
+    return "completed_with_warnings"
+
+
+def _is_research_only_command(command: str) -> bool:
+    lowered = command.lower()
+    return "research only" in lowered or "only research" in lowered
+
+
 async def execute_run(
     command: str,
     mode: str = "mock",
@@ -48,6 +76,7 @@ async def execute_run(
     allow_ceo_live: bool = False,
     allow_file_writes: bool = False,
     allow_safe_commands: bool = False,
+    allow_web_search: bool = False,
     max_cost_usd: float | None = None,
 ) -> RunResult:
     return await ExecutionEngine().execute_run(
@@ -58,6 +87,7 @@ async def execute_run(
         allow_ceo_live=allow_ceo_live,
         allow_file_writes=allow_file_writes,
         allow_safe_commands=allow_safe_commands,
+        allow_web_search=allow_web_search,
         max_cost_usd=max_cost_usd,
     )
 
@@ -70,6 +100,38 @@ class ExecutionEngine:
         self.usage = UsageStore(self.settings)
         self._ensure_database()
 
+    def _plan_run(
+        self,
+        *,
+        command: str,
+        run_type: str,
+        project_id: str | None,
+        mode: str,
+        allow_file_writes: bool,
+        allow_safe_commands: bool,
+        allow_web_search: bool,
+        max_cost: float,
+    ) -> AgentPlanResult:
+        return AgentPlannerService(self.settings).plan(
+            AgentPlanRequest(
+                command=command,
+                run_type=run_type,
+                project_id=project_id,
+                mode=mode,
+                allow_file_writes=allow_file_writes,
+                allow_safe_commands=allow_safe_commands,
+                allow_search=allow_web_search,
+                max_cost_usd=max_cost,
+            )
+        )
+
+    def _selection_by_agent(self, plan: AgentPlanResult) -> dict[str, Any]:
+        return {
+            item.agent_id: item.selected_model
+            for item in plan.selected_agents
+            if item.selected_model
+        }
+
     async def execute_run(
         self,
         *,
@@ -80,6 +142,7 @@ class ExecutionEngine:
         allow_ceo_live: bool = False,
         allow_file_writes: bool = False,
         allow_safe_commands: bool = False,
+        allow_web_search: bool = False,
         max_cost_usd: float | None = None,
     ) -> RunRecord:
         if mode not in {"mock", "live"}:
@@ -103,6 +166,30 @@ class ExecutionEngine:
                 started_at=started_at,
                 memory=memory,
             )
+        if run_type in {"research", "research_only"} or _is_research_only_command(command):
+            return await self._execute_research_only(
+                command=command,
+                mode=mode,
+                project_id=project_id,
+                allow_web_search=allow_web_search,
+                max_cost=max_cost,
+                run_id=run_id,
+                started_at=started_at,
+                memory=memory,
+            )
+        if run_type == "website_update":
+            return await self._execute_website_update(
+                command=command,
+                mode=mode,
+                project_id=project_id,
+                allow_file_writes=allow_file_writes,
+                allow_safe_commands=allow_safe_commands,
+                allow_web_search=allow_web_search,
+                max_cost=max_cost,
+                run_id=run_id,
+                started_at=started_at,
+                memory=memory,
+            )
         if run_type in {"prototype_build", "continuation"}:
             return await self._execute_prototype_build(
                 command=command,
@@ -112,6 +199,7 @@ class ExecutionEngine:
                 allow_ceo_live=allow_ceo_live,
                 allow_file_writes=allow_file_writes,
                 allow_safe_commands=allow_safe_commands,
+                allow_web_search=allow_web_search,
                 max_cost=max_cost,
                 run_id=run_id,
                 started_at=started_at,
@@ -352,6 +440,165 @@ class ExecutionEngine:
         self._update_memory(record, model_selection)
         return record
 
+    async def _execute_research_only(
+        self,
+        *,
+        command: str,
+        mode: str,
+        project_id: str | None,
+        allow_web_search: bool,
+        max_cost: float,
+        run_id: str,
+        started_at: datetime,
+        memory,
+    ) -> RunRecord:
+        active_project_id = project_id or "unassigned"
+        agent_plan = self._plan_run(
+            command=command,
+            run_type="research_only",
+            project_id=project_id,
+            mode=mode,
+            allow_file_writes=False,
+            allow_safe_commands=False,
+            allow_web_search=allow_web_search,
+            max_cost=max_cost,
+        )
+        selected_models = self._selection_by_agent(agent_plan)
+        research_model = _selected_model_id(selected_models, "research_agent", self.settings.cheap_search_worker_model)
+        qa_model = _selected_model_id(selected_models, "qa_agent", self.settings.cheap_worker_model)
+        provider_id = (agent_plan.selected_search_provider or {}).get("id") if isinstance(agent_plan.selected_search_provider, dict) else None
+        search_result = await self._run_research_search(
+            command=command,
+            mode=mode,
+            allow_web_search=allow_web_search,
+            provider_id=provider_id,
+            run_id=run_id,
+            project_id=project_id,
+        )
+        sources = search_result.sources
+        research_text = self._research_only_report(command, agent_plan.model_dump(), [source.model_dump() for source in sources], search_result.brief)
+        artifacts = []
+        agent_plan_artifact = self.artifacts.save_text(
+            run_id=run_id,
+            name="agent_plan.json",
+            artifact_type="json",
+            content=agent_plan.model_dump_json(indent=2),
+            agent_name="Model Selector Agent",
+            summary="Research-only plan with search selection status.",
+        )
+        model_selection_artifact = self.artifacts.save_text(
+            run_id=run_id,
+            name="model_selection.json",
+            artifact_type="json",
+            content=json.dumps(selected_models, indent=2),
+            agent_name="Model Selector Agent",
+            summary="Per-agent model choices for research-only run.",
+        )
+        research_artifact = self.artifacts.save_text(
+            run_id=run_id,
+            name="research_brief.md",
+            artifact_type="markdown",
+            content=research_text,
+            agent_name="Research Agent",
+            summary="Research-only brief and source limitations.",
+        )
+        sources_artifact = self.artifacts.save_text(
+            run_id=run_id,
+            name="research_sources.json",
+            artifact_type="json",
+            content=json.dumps(self._research_sources_payload(agent_plan.model_dump(), search_result), indent=2),
+            agent_name="Research Agent",
+            summary="Search sources used, or empty when search was unavailable/disabled.",
+        )
+        artifacts.extend([agent_plan_artifact, model_selection_artifact, research_artifact, sources_artifact])
+        events = [
+            self._manual_step(
+                run_id=run_id,
+                mode=mode,
+                agent_name="Research Agent",
+                agent_role="Research and source collection",
+                model=research_model,
+                request_type="research_only",
+                input_text=command,
+                output_text=research_text,
+                action_summary="Produced research-only brief",
+                artifact_id=research_artifact.id,
+            )
+        ]
+        qa_text = self._prototype_qa_review(command, research_text, [])
+        qa_output = await self._run_step(
+            run_id=run_id,
+            command=command,
+            mode=mode,
+            agent_name="QA Agent",
+            agent_role="Review and quality control",
+            model=qa_model,
+            request_type="validation",
+            prompt=qa_text,
+            mock_output=qa_text,
+        )
+        qa_artifact = self.artifacts.save_text(
+            run_id=run_id,
+            name="qa_review.md",
+            artifact_type="markdown",
+            content=qa_output["text"],
+            agent_name="QA Agent",
+            summary="QA review for research-only run.",
+        )
+        artifacts.append(qa_artifact)
+        events.append(self._event_from_step(qa_output, "Reviewed research-only output", research_text, qa_artifact.id))
+        completed_at = datetime.now(UTC)
+        metrics = RunMetrics(
+            total_estimated_tokens=sum(event.estimated_tokens or event.estimated_input_tokens + event.estimated_output_tokens for event in events),
+            total_estimated_cost_usd=round(sum(event.estimated_cost_usd for event in events), 6),
+            agents_used=len({event.agent_name for event in events if event.agent_name != "TheHiveMind"}),
+            tasks_completed=len(events),
+            run_duration_seconds=round((completed_at - started_at).total_seconds(), 3),
+            memory_chunks_retrieved=len(memory.retrieved_snippets),
+        )
+        if metrics.total_estimated_cost_usd > max_cost:
+            raise HTTPException(status_code=400, detail=f"Estimated run cost ${metrics.total_estimated_cost_usd:.6f} exceeds request max_cost_usd=${max_cost:.2f}.")
+        record = RunRecord(
+            run_id=run_id,
+            command=command,
+            mode=mode,
+            project_id=project_id,
+            run_type="research_only",
+            status="completed",
+            started_at=started_at,
+            completed_at=completed_at,
+            events=events,
+            agents=[
+                AgentInfo(name="Research Agent", role="Research and source collection", assigned_model=research_model, status="completed", latest_action="Produced research-only brief", completed_work=["Created research_brief.md", "Created research_sources.json"]),
+                AgentInfo(name="QA Agent", role="Review and quality control", assigned_model=qa_model, status="completed", latest_action="Reviewed research-only output", completed_work=["Reviewed research brief."]),
+            ],
+            task_graph=build_default_task_graph(),
+            metrics=metrics,
+            memory=memory,
+            final_output=FinalOutput(
+                summary="Research-only workflow completed without Website Agent or file writes.",
+                what_was_done=["Selected research-only workflow.", "Produced a research brief.", "Stored source metadata or limitations.", "Skipped Website Agent and file writes."],
+                recommended_next_actions=["Review sources and limitations before using claims.", "Enable live web search only when you want paid/current provider data."],
+                generated_artifacts=[artifact.name for artifact in artifacts],
+            ),
+            artifacts=artifacts,
+            models_used=sorted({event.model_used for event in events}),
+            usage_summary={
+                "estimated_cost_usd": metrics.total_estimated_cost_usd,
+                "estimated_tokens": metrics.total_estimated_tokens,
+                "agents_used": metrics.agents_used,
+                "models_used": sorted({event.model_used for event in events}),
+                "selected_workflow": agent_plan.selected_workflow,
+                "search_provider_id": provider_id,
+                "search_needed": agent_plan.search_needed,
+                "search_unavailable": agent_plan.search_unavailable,
+            },
+            agent_plan=agent_plan.model_dump(),
+            model_selection=selected_models,
+        )
+        self._save_run(record)
+        return record
+
     async def _execute_provider_test(
         self,
         *,
@@ -457,6 +704,342 @@ class ExecutionEngine:
         self._save_run(record)
         return record
 
+    async def _execute_website_update(
+        self,
+        *,
+        command: str,
+        mode: str,
+        project_id: str | None,
+        allow_file_writes: bool,
+        allow_safe_commands: bool,
+        allow_web_search: bool,
+        max_cost: float,
+        run_id: str,
+        started_at: datetime,
+        memory,
+    ) -> RunRecord:
+        if not allow_file_writes:
+            raise HTTPException(status_code=403, detail="website_update requires allow_file_writes=true unless the prompt restricted file writes.")
+
+        active_project_id = project_id or "default-project"
+        project_manager = ProjectWorkspaceManager(self.settings)
+        project_workspace = project_manager.ensure_project_workspace(active_project_id)
+        project_root = project_manager.get_project_root(active_project_id)
+        project_manager.create_run_log_folder(run_id)
+        command_runner = SafeCommandRunner(self.settings)
+        agent_plan = self._plan_run(
+            command=command,
+            run_type="website_update",
+            project_id=active_project_id,
+            mode=mode,
+            allow_file_writes=allow_file_writes,
+            allow_safe_commands=allow_safe_commands,
+            allow_web_search=allow_web_search,
+            max_cost=max_cost,
+        )
+        selected_models = self._selection_by_agent(agent_plan)
+        research_model = _selected_model_id(selected_models, "research_agent", self.settings.cheap_search_worker_model)
+        website_model = _selected_model_id(selected_models, "website_agent", self.settings.cheap_worker_model)
+        qa_model = _selected_model_id(selected_models, "qa_agent", self.settings.cheap_worker_model)
+
+        artifact_records = []
+        events: list[RunEvent] = []
+        agent_plan_artifact = self.artifacts.save_text(
+            run_id=run_id,
+            name="agent_plan.json",
+            artifact_type="json",
+            content=agent_plan.model_dump_json(indent=2),
+            agent_name="Model Selector Agent",
+            summary="Selected website_update workflow, selected/skipped agents, and applied constraints.",
+        )
+        model_selection_artifact = self.artifacts.save_text(
+            run_id=run_id,
+            name="model_selection.json",
+            artifact_type="json",
+            content=json.dumps(selected_models, indent=2),
+            agent_name="Model Selector Agent",
+            summary="Per-agent model choices with reasons and fallbacks.",
+        )
+        artifact_records.extend([agent_plan_artifact, model_selection_artifact])
+
+        research_context = ""
+        if any(agent.agent_id == "research_agent" for agent in agent_plan.selected_agents):
+            provider_id = (agent_plan.selected_search_provider or {}).get("id") if isinstance(agent_plan.selected_search_provider, dict) else None
+            search_result = await self._run_research_search(
+                command=command,
+                mode=mode,
+                allow_web_search=allow_web_search,
+                provider_id=provider_id,
+                run_id=run_id,
+                project_id=active_project_id,
+            )
+            sources = search_result.sources
+            research_context = self._research_only_report(command, agent_plan.model_dump(), [source.model_dump() for source in sources], search_result.brief)
+            research_artifact = self.artifacts.save_text(
+                run_id=run_id,
+                name="research_brief.md",
+                artifact_type="markdown",
+                content=research_context,
+                agent_name="Research Agent",
+                summary="Research context for website update.",
+            )
+            sources_artifact = self.artifacts.save_text(
+                run_id=run_id,
+                name="research_sources.json",
+                artifact_type="json",
+                content=json.dumps(self._research_sources_payload(agent_plan.model_dump(), search_result), indent=2),
+                agent_name="Research Agent",
+                summary="Search sources used, or empty when search was unavailable/disabled.",
+            )
+            artifact_records.extend([research_artifact, sources_artifact])
+            events.append(
+                self._manual_step(
+                    run_id=run_id,
+                    mode=mode,
+                    agent_name="Research Agent",
+                    agent_role="Research and source collection",
+                    model=research_model,
+                    request_type="website_research",
+                    input_text=command,
+                    output_text=research_context,
+                    action_summary="Prepared research context for website update",
+                    artifact_id=research_artifact.id,
+                )
+            )
+
+        website_agent = FileBuilderAgent("Website Agent", "Updates website project files", website_model)
+        file_entries = website_agent.build_project_greek_yogurt_site(active_project_id, run_id, command)
+        workspace_artifacts = []
+        for entry in file_entries:
+            artifact = self.artifacts.register_file(
+                run_id=run_id,
+                name=entry.path,
+                artifact_type="project_file",
+                path=str(project_root / entry.path),
+                agent_name="Website Agent",
+                summary=entry.after_summary,
+            )
+            workspace_artifacts.append(artifact)
+            artifact_records.append(artifact)
+        website_text = "\n".join(f"- {entry.operation}: {entry.path} ({entry.size_bytes} bytes)" for entry in file_entries)
+        events.append(
+            self._manual_step(
+                run_id=run_id,
+                mode=mode,
+                agent_name="Website Agent",
+                agent_role="Updates website project files",
+                model=website_model,
+                request_type="website_update",
+                input_text=command,
+                output_text=website_text,
+                action_summary="Updated website project files",
+                artifact_id=workspace_artifacts[0].id if workspace_artifacts else model_selection_artifact.id,
+            )
+        )
+
+        command_results: list[CommandResult] = []
+        if allow_safe_commands:
+            command_results.append(command_runner.run_project_command(active_project_id, run_id, ["python", "-m", "py_compile", "website/app.py"]))
+        else:
+            command_results.append(
+                CommandResult(
+                    command=["python", "-m", "py_compile", "website/app.py"],
+                    cwd=".",
+                    exit_code=-1,
+                    stdout="",
+                    stderr="",
+                    duration_ms=0,
+                    allowed=False,
+                    blocked_reason="Blocked by safety policy: safe commands disabled for this run.",
+                    executable_command=["python", "-m", "py_compile", "website/app.py"],
+                    resolved_cwd=str(project_root),
+                )
+            )
+        command_text = "\n".join(
+            f"- {'allowed' if result.allowed else 'blocked'} {result.command}: exit={result.exit_code} cwd={result.cwd} stderr={result.stderr[:300]} reason={result.blocked_reason or result.error_message or 'n/a'}"
+            for result in command_results
+        )
+        if allow_safe_commands:
+            command_event = self._manual_step(
+                    run_id=run_id,
+                    mode=mode,
+                    agent_name="Safe Command Runner",
+                    agent_role="Validation sandbox",
+                    model=self.settings.cheap_worker_model,
+                    request_type="command_validation",
+                    input_text="Validate changed website files.",
+                    output_text=command_text,
+                    action_summary="Validated website files with safe command runner",
+                    artifact_id=workspace_artifacts[0].id if workspace_artifacts else model_selection_artifact.id,
+                )
+            command_event.status = _command_event_status(command_results)  # type: ignore[assignment]
+            command_event.action_summary = "Safe command validation failed" if command_event.status == "validation_failed" else command_event.action_summary
+            events.append(command_event)
+
+        qa_input = f"Agent plan:\n{agent_plan.model_dump_json(indent=2)}\n\nResearch:\n{research_context}\n\nFiles:\n{website_text}\n\nCommands:\n{command_text}"
+        qa_output = await self._run_step(
+            run_id=run_id,
+            command=command,
+            mode=mode,
+            agent_name="QA Agent",
+            agent_role="Review and quality control",
+            model=qa_model,
+            request_type="validation",
+            prompt=qa_input,
+            mock_output=self._prototype_qa_review(command, qa_input, command_results),
+        )
+        qa_artifact = self.artifacts.save_text(
+            run_id=run_id,
+            name="qa_review.md",
+            artifact_type="markdown",
+            content=qa_output["text"],
+            agent_name="QA Agent",
+            summary="QA review of website-only update and constraints.",
+        )
+        artifact_records.append(qa_artifact)
+        events.append(self._event_from_step(qa_output, "Reviewed website update", "Review website update outputs and constraints.", qa_artifact.id))
+
+        completed_at = datetime.now(UTC)
+        metrics = RunMetrics(
+            total_estimated_tokens=sum(event.estimated_tokens or event.estimated_input_tokens + event.estimated_output_tokens for event in events),
+            total_estimated_cost_usd=round(sum(event.estimated_cost_usd for event in events), 6),
+            agents_used=len({event.agent_name for event in events if event.agent_name != "TheHiveMind"}),
+            tasks_completed=len(events),
+            run_duration_seconds=round((completed_at - started_at).total_seconds(), 3),
+            memory_chunks_retrieved=len(memory.retrieved_snippets),
+        )
+        assert_run_budget(metrics.total_estimated_cost_usd)
+        if metrics.total_estimated_cost_usd > max_cost:
+            raise HTTPException(status_code=400, detail=f"Estimated run cost ${metrics.total_estimated_cost_usd:.6f} exceeds request max_cost_usd=${max_cost:.2f}.")
+
+        created_files = [entry.path for entry in file_entries if entry.operation == "created"]
+        edited_files = [entry.path for entry in file_entries if entry.operation == "updated"]
+        command_success = all(result.allowed and result.exit_code == 0 for result in command_results)
+        project_state_content = update_project_state(
+            project_root / "project_state.md",
+            project_id=active_project_id,
+            run_id=run_id,
+            command=command,
+            files_created=created_files,
+            files_edited=edited_files,
+            command_success=command_success,
+            next_steps=["Review website changes locally.", "Keep deploys, installs, external actions, and public claims behind approval."],
+        )
+        state_entry = project_manager.write_project_file(active_project_id, "project_state.md", project_state_content, "Project Workspace Manager", run_id, "Latest project state after website_update.")
+        project_manifest = project_manager.append_project_run(active_project_id, run_id, f"Website update completed for: {command}")
+        manifest_artifact = self.artifacts.register_file(
+            run_id=run_id,
+            name="project_manifest.json",
+            artifact_type="project_manifest",
+            path=str(project_root / "manifest.json"),
+            agent_name="Project Workspace Manager",
+            summary="Persistent project manifest with website_update files.",
+        )
+        state_artifact = self.artifacts.register_file(
+            run_id=run_id,
+            name="project_state.md",
+            artifact_type="project_state",
+            path=str(project_root / "project_state.md"),
+            agent_name="Project Workspace Manager",
+            summary="Updated project state.",
+        )
+        artifact_records.extend([manifest_artifact, state_artifact])
+        project_manager.write_run_logs(
+            run_id=run_id,
+            run_summary={
+                "run_id": run_id,
+                "project_id": active_project_id,
+                "run_type": "website_update",
+                "status": "completed",
+                "selected_workflow": agent_plan.selected_workflow,
+                "agent_plan": agent_plan.model_dump(),
+                "model_selection": selected_models,
+                "files_created": created_files,
+                "files_edited": edited_files,
+                "commands": [result.model_dump() for result in command_results],
+                "estimated_cost_usd": metrics.total_estimated_cost_usd,
+            },
+            timeline=[event.model_dump() for event in events],
+            commands=[result.model_dump() for result in command_results],
+            project_manifest=project_manifest,
+        )
+        workspace_summary = WorkspaceSummary(
+            root=project_manager.public_root(active_project_id),
+            files_created=created_files,
+            files_edited=[*edited_files, state_entry.path] if state_entry.operation == "updated" else edited_files,
+            commands_run=command_results,
+            command_success=command_success,
+        )
+        project_workspace_summary = ProjectWorkspaceSummary(
+            project_id=active_project_id,
+            root=project_workspace.root,
+            files_created=created_files,
+            files_edited=edited_files,
+            commands_run=[result.model_dump() for result in command_results],
+            command_success=command_success,
+        )
+        agent_infos = []
+        if research_context:
+            agent_infos.append(
+                AgentInfo(
+                    name="Research Agent",
+                    role="Research and source collection",
+                    assigned_model=research_model,
+                    status="completed",
+                    latest_action="Prepared research context",
+                    completed_work=["Created research_brief.md", "Created research_sources.json"],
+                )
+            )
+        agent_infos.extend(
+            [
+                AgentInfo(name="Website Agent", role="Updates website project files", assigned_model=website_model, status="completed", latest_action="Updated website files", completed_work=created_files + edited_files),
+                AgentInfo(name="QA Agent", role="Review and quality control", assigned_model=qa_model, status="completed", latest_action="Reviewed website update", completed_work=["Reviewed file changes and command logs."]),
+            ]
+        )
+        record = RunRecord(
+            run_id=run_id,
+            command=command,
+            mode=mode,
+            project_id=active_project_id,
+            run_type="website_update",
+            status="completed",
+            started_at=started_at,
+            completed_at=completed_at,
+            events=events,
+            agents=agent_infos,
+            task_graph=build_default_task_graph(),
+            metrics=metrics,
+            memory=memory,
+            final_output=FinalOutput(
+                summary=f"Website-only workflow updated project {active_project_id}.",
+                what_was_done=["Selected workflow: website_update.", "Updated website files only.", "Ran QA after file changes.", "Logged model selection reasons."],
+                recommended_next_actions=["Review files in Project Workspace.", "Run the site locally before any public use."],
+                generated_artifacts=[artifact.name for artifact in artifact_records],
+            ),
+            artifacts=artifact_records,
+            workspace=workspace_summary,
+            project_workspace=project_workspace_summary,
+            models_used=sorted({event.model_used for event in events}),
+            project_files_created=created_files,
+            project_files_updated=[*edited_files, state_entry.path] if state_entry.operation == "updated" else edited_files,
+            commands_run=[result.model_dump() for result in command_results],
+            usage_summary={
+                "estimated_cost_usd": metrics.total_estimated_cost_usd,
+                "estimated_tokens": metrics.total_estimated_tokens,
+                "agents_used": metrics.agents_used,
+                "models_used": sorted({event.model_used for event in events}),
+                "selected_workflow": agent_plan.selected_workflow,
+                "search_needed": agent_plan.search_needed,
+                "search_unavailable": agent_plan.search_unavailable,
+                "search_provider_id": (agent_plan.selected_search_provider or {}).get("id") if isinstance(agent_plan.selected_search_provider, dict) else None,
+            },
+            memory_updates=[],
+            agent_plan=agent_plan.model_dump(),
+            model_selection=selected_models,
+        )
+        self._save_run(record)
+        return record
+
     async def _execute_prototype_build(
         self,
         *,
@@ -467,6 +1050,7 @@ class ExecutionEngine:
         allow_ceo_live: bool,
         allow_file_writes: bool,
         allow_safe_commands: bool,
+        allow_web_search: bool,
         max_cost: float,
         run_id: str,
         started_at: datetime,
@@ -496,6 +1080,18 @@ class ExecutionEngine:
         task_packets: list[TaskPacket] = []
         events: list[RunEvent] = []
         artifact_records = []
+        agent_plan = self._plan_run(
+            command=command,
+            run_type=run_type,
+            project_id=active_project_id,
+            mode=mode,
+            allow_file_writes=allow_file_writes,
+            allow_safe_commands=allow_safe_commands,
+            allow_web_search=allow_web_search,
+            max_cost=max_cost,
+        )
+        selected_models = self._selection_by_agent(agent_plan)
+        website_only = agent_plan.selected_workflow == "website_update"
 
         def packet(task_id: str, agent_key: str, objective: str, input_artifacts: list[str], expected_outputs: list[str], allowed_tools: list[str]) -> TaskPacket:
             agent = agents[agent_key]
@@ -737,6 +1333,8 @@ class ExecutionEngine:
             action_summary="Validated generated code with safe command runner",
             artifact_id=workspace_artifacts[0].id if workspace_artifacts else ceo_artifact.id,
         )
+        command_event.status = _command_event_status(command_results)  # type: ignore[assignment]
+        command_event.action_summary = "Safe command validation failed" if command_event.status == "validation_failed" else command_event.action_summary
         events.append(command_event)
 
         project_manifest = project_manager.get_project_manifest(active_project_id)
@@ -952,8 +1550,11 @@ class ExecutionEngine:
                 "estimated_tokens": metrics.total_estimated_tokens,
                 "agents_used": metrics.agents_used,
                 "models_used": sorted({event.model_used for event in events}),
+                "selected_workflow": agent_plan.selected_workflow,
             },
             memory_updates=memory_updates,
+            agent_plan=agent_plan.model_dump(),
+            model_selection=selected_models,
         )
         self._save_run(record)
         return record
@@ -1300,6 +1901,141 @@ Run Engine v1 completed a controlled, sequential workflow and saved stage output
 
 ## Status
 Approved for local review only. Human approval is still required before public use, deployment, or live customer handling.
+"""
+
+    async def _run_research_search(
+        self,
+        *,
+        command: str,
+        mode: str,
+        allow_web_search: bool,
+        provider_id: str | None,
+        run_id: str,
+        project_id: str | None,
+    ):
+        if not allow_web_search or not provider_id:
+            SearchLogStore(self.settings).append(
+                {
+                    "run_id": run_id,
+                    "project_id": project_id,
+                    "provider_id": provider_id,
+                    "mode": mode,
+                    "query": command,
+                    "status": "skipped",
+                    "source_count": 0,
+                    "sources": [],
+                    "cache_hit": False,
+                    "mock_fixture": False,
+                    "error_type": "search_unavailable",
+                    "error_message": "Web search was disabled or no search provider was selected.",
+                    "cost": {"estimated_usd": 0.0, "source": "search_tool_estimate"},
+                }
+            )
+            return SearchResultPayload(
+                research_used=False,
+                search_provider_id=provider_id,
+                brief="Web search was disabled or no search provider was selected.",
+                limitations=["No live search call was made."],
+                error_type="search_unavailable",
+                error_message="Web search was disabled or no search provider was selected.",
+            )
+        if provider_id == "exa_direct":
+            return await run_exa_search(
+                SearchRequest(
+                    query=command,
+                    provider_id=provider_id,
+                    max_results=5,
+                    mode=mode,
+                    allow_web_search=allow_web_search,
+                    run_id=run_id,
+                    project_id=project_id,
+                    agent_name="Research Agent",
+                ),
+                settings=self.settings,
+                store=self.usage_store_for_search(),
+            )
+        SearchLogStore(self.settings).append(
+            {
+                "run_id": run_id,
+                "project_id": project_id,
+                "provider_id": provider_id,
+                "mode": mode,
+                "query": command,
+                "status": "skipped",
+                "source_count": 0,
+                "sources": [],
+                "cache_hit": False,
+                "mock_fixture": False,
+                "error_type": "provider_not_wired",
+                "error_message": "Only Exa Direct is wired for live run-level search calls right now.",
+                "cost": {"estimated_usd": 0.0, "source": "search_tool_estimate"},
+            }
+        )
+        return SearchResultPayload(
+            research_used=False,
+            search_provider_id=provider_id,
+            brief=f"{provider_id} is selected but not executed in this path.",
+            limitations=["Only Exa Direct is wired for live run-level search calls right now."],
+            error_type="provider_not_wired",
+            error_message="Only Exa Direct is wired for live run-level search calls right now.",
+        )
+
+    def _research_sources_payload(self, agent_plan: dict[str, Any], search_result: SearchResultPayload) -> dict[str, Any]:
+        provider_id = search_result.search_provider_id or (
+            (agent_plan.get("selected_search_provider") or {}).get("id")
+            if isinstance(agent_plan.get("selected_search_provider"), dict)
+            else None
+        )
+        sources = [source.model_dump() for source in search_result.sources]
+        return {
+            "search_used": bool(search_result.research_used),
+            "search_unavailable": bool(agent_plan.get("search_unavailable") or search_result.error_type),
+            "provider_id": provider_id,
+            "mock_fixture": search_result.mock_fixture,
+            "cache_hit": search_result.cache_hit,
+            "reason": search_result.error_message or "; ".join(search_result.limitations) or None,
+            "error_type": search_result.error_type,
+            "error_message": search_result.error_message,
+            "source_count": len(sources),
+            "cost": search_result.cost,
+            "sources": sources,
+        }
+
+    def usage_store_for_search(self):
+        from app.usage_sync.sync_store import SyncStore
+
+        return SyncStore(self.settings)
+
+    def _research_only_report(self, command: str, agent_plan: dict[str, Any], sources: list[dict[str, Any]], search_brief: str = "") -> str:
+        provider = (agent_plan.get("selected_search_provider") or {}).get("id") if isinstance(agent_plan.get("selected_search_provider"), dict) else None
+        source_lines = "\n".join(f"- {source.get('title')}: {source.get('url')}" for source in sources) or "- No live sources collected."
+        limitations = []
+        if agent_plan.get("search_unavailable"):
+            limitations.append("- Web search was needed but unavailable or disabled; do not treat this as fresh research.")
+        if sources:
+            limitations.append("- Sources are mock-mode placeholders unless the run mode was live.")
+        limitation_text = "\n".join(limitations) or "- No additional limitations recorded."
+        return f"""# Research Brief
+
+## Command
+{command}
+
+## Search Selection
+- Search needed: {agent_plan.get("search_needed", False)}
+- Search unavailable: {agent_plan.get("search_unavailable", False)}
+- Selected provider: {provider or "none"}
+
+## Findings
+- This run prepared a research-only handoff and did not run Website Agent.
+- Use the source list and limitations below before making product, pricing, competitor, or market claims.
+- Current/fresh claims require live provider search approval and configured provider keys.
+- Search brief: {search_brief or "No live search summary."}
+
+## Sources
+{source_lines}
+
+## Limitations
+{limitation_text}
 """
 
     def _prototype_final_report(

@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Query
 
 from app.usage_sync.google_billing_sync import get_google_official_summary, sync_google_billing
+from app.usage_sync.exa_usage_sync import get_exa_official_summary, sync_exa_usage
 from app.usage_sync.openai_usage_sync import get_openai_official_summary, sync_openai_usage
 from app.usage_sync.openrouter_usage_sync import get_openrouter_official_summary, sync_openrouter_credits
 from app.usage_sync.provider_sync_service import ProviderSyncService
@@ -42,6 +43,12 @@ async def openrouter_official_usage(time_range: str = Query("30d", alias="range"
 async def google_official_usage(time_range: str = Query("30d", alias="range")) -> UsageReconciliationResult:
     await sync_google_billing(time_range)
     return await get_google_official_summary(time_range)
+
+
+@router.get("/exa", response_model=UsageReconciliationResult)
+async def exa_official_usage(time_range: str = Query("30d", alias="range")) -> UsageReconciliationResult:
+    await sync_exa_usage(time_range)
+    return await get_exa_official_summary(time_range)
 
 
 @router.get("/reconciliation", response_model=list[UsageReconciliationResult])

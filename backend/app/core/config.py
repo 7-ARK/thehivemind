@@ -65,7 +65,15 @@ class Settings(BaseSettings):
 
     enable_openai_web_search: bool = False
     enable_gemini_grounding: bool = False
+    enable_gemini_google_search: bool = False
     enable_openrouter_search: bool = False
+    allow_web_search: bool = False
+    exa_api_key: str = ""
+    exa_service_api_key: str = ""
+    exa_api_key_id: str = ""
+    enable_exa_search: bool = False
+    enable_exa_official_usage_sync: bool = False
+    search_provider_default: str = "exa_direct"
     auto_sync_provider_usage_after_live_run: bool = True
     auto_sync_official_usage_after_live_run: bool = True
     official_usage_sync_cooldown_minutes: int = 10

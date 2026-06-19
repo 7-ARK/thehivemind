@@ -7,7 +7,11 @@ import pytest
 from app.providers.base_provider import ProviderResponse
 from app.storage.usage_store import UsageStore
 from app.orchestration.execution_engine import ExecutionEngine
+from app.search_tools.exa_client import run_exa_search
+from app.search_tools.schemas import SearchRequest
+from app.search_tools.search_store import SearchLogStore
 from app.usage_sync.google_billing_sync import list_google_billing_tables
+from app.usage_sync.exa_usage_sync import sync_exa_usage
 from app.usage_sync.openai_usage_sync import sync_openai_usage
 from app.usage_sync.reconciliation_service import reconcile_provider_usage
 from app.usage_sync.sync_store import SyncStore
@@ -21,8 +25,11 @@ def test_official_usage_status_handles_missing_keys_and_does_not_leak_secrets(cl
     assert payload["openai"]["admin_key_configured"] is False
     assert payload["openrouter"]["management_key_configured"] is False
     assert payload["google"]["credentials_configured"] is False
+    assert payload["exa"]["service_key_configured"] is False
+    assert payload["exa"]["api_key_id_configured"] is False
     assert "key-openrouter" not in response.text
     assert "sk-" not in response.text
+    assert "exa-secret" not in response.text
 
 
 def test_official_usage_status_does_not_return_configured_secret_values(client, monkeypatch):
@@ -62,6 +69,116 @@ async def test_openai_sync_handles_unauthorized_without_crashing(monkeypatch, tm
 
     assert records == []
     assert SyncStore(get_settings()).status()["openai"]["status"] == "unauthorized"
+
+
+@pytest.mark.anyio
+async def test_exa_official_usage_sync_records_api_key_billing(monkeypatch, tmp_path):
+    monkeypatch.setenv("ENABLE_EXA_OFFICIAL_USAGE_SYNC", "true")
+    monkeypatch.setenv("EXA_SERVICE_API_KEY", "exa-service-secret")
+    monkeypatch.setenv("EXA_API_KEY_ID", "key_123")
+    monkeypatch.setenv("PROVIDER_USAGE_STORE_PATH", str(tmp_path / "provider_usage"))
+    from app.core.config import get_settings
+
+    get_settings.cache_clear()
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "api_key_id": "key_123",
+                "api_key_name": "HiveMind Search",
+                "team_id": "team_123",
+                "period": {"start": "2026-06-01T00:00:00Z", "end": "2026-06-19T00:00:00Z"},
+                "total_cost_usd": 1.23,
+                "cost_breakdown": [{"price_name": "Search", "quantity": 100, "amount_usd": 1.23}],
+            }
+
+    class FakeAsyncClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def get(self, *args, **kwargs):
+            return FakeResponse()
+
+    monkeypatch.setattr("app.usage_sync.exa_usage_sync.httpx.AsyncClient", FakeAsyncClient)
+    records = await sync_exa_usage("30d")
+
+    assert len(records) == 1
+    assert records[0].provider == "exa"
+    assert records[0].provider_reported_cost_usd == 1.23
+    status = SyncStore(get_settings()).status()["exa"]
+    assert status["status"] == "ok"
+    assert "exa-service-secret" not in str(SyncStore(get_settings()).list_records("exa")[0].raw)
+
+
+@pytest.mark.anyio
+async def test_exa_live_search_logs_run_level_estimate(client, monkeypatch, tmp_path):
+    monkeypatch.setenv("ALLOW_LIVE_CALLS", "true")
+    monkeypatch.setenv("ENABLE_EXA_SEARCH", "true")
+    monkeypatch.setenv("EXA_API_KEY", "exa-search-secret")
+    monkeypatch.setenv("PROVIDER_USAGE_STORE_PATH", str(tmp_path / "provider_usage"))
+    from app.core.config import get_settings
+
+    get_settings.cache_clear()
+
+    class FakeResponse:
+        status_code = 200
+        headers = {}
+
+        def json(self):
+            return {
+                "requestId": "exa_req_123",
+                "results": [
+                    {
+                        "title": "Example Result",
+                        "url": "https://example.com/a",
+                        "publishedDate": "2026-06-01T00:00:00Z",
+                        "highlights": ["Useful highlighted evidence."],
+                    }
+                ],
+            }
+
+    class FakeAsyncClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def post(self, *args, **kwargs):
+            assert kwargs["json"]["type"] == "auto"
+            assert kwargs["json"]["contents"] == {"highlights": True}
+            return FakeResponse()
+
+    monkeypatch.setattr("app.search_tools.exa_client.httpx.AsyncClient", FakeAsyncClient)
+    result = await run_exa_search(
+        SearchRequest(query="latest yogurt competitors", mode="live", allow_web_search=True, run_id="run-exa", project_id="proj")
+    )
+
+    assert result.sources[0].url == "https://example.com/a"
+    records = SyncStore(get_settings()).list_records("exa")
+    assert len(records) == 1
+    assert records[0].run_id == "run-exa"
+    assert records[0].request_id == "exa_req_123"
+    assert records[0].safety_estimated_cost_usd is not None
+    logs = SearchLogStore(get_settings()).recent()
+    assert logs[0]["status"] == "success"
+    assert logs[0]["provider_id"] == "exa_direct"
+    assert logs[0]["source_count"] == 1
+    summary = client.get("/api/usage/real/summary").json()
+    assert summary["model_provider_reported_cost_usd"] == 0
+    assert summary["search_tool_estimated_cost_usd"] > 0
 
 
 def test_openrouter_sync_missing_management_key(client, monkeypatch):

@@ -24,6 +24,10 @@ class CommandResult(BaseModel):
     duration_ms: int
     allowed: bool
     blocked_reason: str | None = None
+    executable_command: list[str] = Field(default_factory=list)
+    resolved_cwd: str | None = None
+    error_type: str | None = None
+    error_message: str | None = None
 
 
 class WorkspaceSummary(BaseModel):

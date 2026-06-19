@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from app.core.config import Settings, get_settings
+from app.search_tools.search_store import SearchLogStore
 from app.usage_sync.schemas import ProviderUsageRecord
 from app.usage_sync.sync_store import SyncStore
 
@@ -21,15 +22,40 @@ class RealUsageService:
     def summary(self, include_dev_estimates: bool = False) -> dict[str, Any]:
         run_records = self._run_records(include_dev_estimates)
         official_cards = self._official_cards()
+        search_logs = [
+            log
+            for log in SearchLogStore(self.settings).recent(10000)
+            if log.get("status") in {"success", "cache_hit", "mock_fixture"} and log.get("provider_id")
+        ]
+        search_tool_estimate = round(
+            sum(float((log.get("cost") or {}).get("estimated_usd") or 0) for log in search_logs),
+            6,
+        )
+        model_records = [record for record in run_records if not _is_search_tool_record(record)]
+        search_records = [record for record in run_records if _is_search_tool_record(record)]
         return {
-            "run_level_provider_cost_usd": round(sum(record.provider_reported_cost_usd or 0 for record in run_records), 6),
-            "run_level_tokens": sum(record.total_tokens or 0 for record in run_records),
+            "run_level_provider_cost_usd": round(sum(record.provider_reported_cost_usd or 0 for record in model_records), 6),
+            "model_provider_reported_cost_usd": round(sum(record.provider_reported_cost_usd or 0 for record in model_records), 6),
+            "search_tool_estimated_cost_usd": search_tool_estimate or round(sum(record.safety_estimated_cost_usd or 0 for record in search_records), 6),
+            "run_level_tokens": sum(record.total_tokens or 0 for record in model_records),
             "run_level_calls": len(run_records),
             "official_billing_cost_usd": round(sum(card["provider_reported_cost_usd"] or 0 for card in official_cards if card["source"] == "provider_official_billing"), 6),
+            "unknown_provider_cost_count": len([record for record in model_records if record.provider_reported_cost_usd is None]),
             "account_balance_records": len([card for card in official_cards if card["source"] == "provider_account_balance"]),
-            "providers": sorted({record.provider for record in run_records} | {card["provider"] for card in official_cards}),
+            "providers": sorted({record.provider for record in model_records} | {card["provider"] for card in official_cards}),
+            "run_level_providers": sorted({record.provider for record in model_records}),
+            "search_tool_providers": sorted({str(log.get("provider_id")) for log in search_logs}),
+            "official_providers": sorted({card["provider"] for card in official_cards}),
             "dev_estimates_hidden": not include_dev_estimates,
-            "note": "Run totals use provider_response and provider_generation_lookup records. Official billing is aggregated by provider; account balances use the latest snapshot only.",
+            "cost_labels_explained": {
+                "provider_reported_cost": "Actual model/API cost returned by a provider response.",
+                "provider_generation_lookup_cost": "Actual generation cost looked up after a provider call.",
+                "official_billing_cost": "Delayed provider billing/export data.",
+                "safety_estimate_dev_only": "Local mock/safety estimate, excluded by default.",
+                "search_tool_estimate": "Local estimate from search tool logs, separate from model spend.",
+                "unknown_provider_cost": "Provider call recorded but exact cost is not available yet.",
+            },
+            "note": "Run model totals use provider-reported costs only. Search tool estimates and official billing/account values are separated because they use different scopes.",
         }
 
     def provider_responses(self, include_dev_estimates: bool = False, limit: int = 100) -> list[dict[str, Any]]:
@@ -140,7 +166,7 @@ class RealUsageService:
             row["note"] = "Latest OpenRouter account-level total usage/credits snapshot. This is not run-level spend."
             cards.append(row)
 
-        for provider in ("openai", "google"):
+        for provider in ("openai", "google", "exa"):
             provider_records = [
                 record
                 for record in records
@@ -149,7 +175,7 @@ class RealUsageService:
             if provider_records:
                 cards.append(_aggregate_official_billing(provider, provider_records))
 
-        return sorted(cards, key=lambda card: {"openrouter": 0, "openai": 1, "google": 2}.get(card["provider"], 99))
+        return sorted(cards, key=lambda card: {"openrouter": 0, "openai": 1, "google": 2, "exa": 3}.get(card["provider"], 99))
 
     def _run_row(self, record: ProviderUsageRecord) -> dict[str, Any]:
         return {
@@ -198,6 +224,13 @@ def _first(records: list[ProviderUsageRecord], field: str) -> Any:
     return None
 
 
+def _is_search_tool_record(record: ProviderUsageRecord) -> bool:
+    return (
+        record.provider == "exa"
+        and (record.actual_model == "exa_search_auto" or record.model == "exa_search_auto")
+    ) or record.raw_usage_metadata.get("cost_source") == "search_tool_estimate"
+
+
 def _official_note(record: ProviderUsageRecord) -> str:
     if record.provider == "openrouter" and record.source == "provider_account_balance":
         return "Account-level total usage / credits, not TheHiveMind run-level spend."
@@ -205,6 +238,8 @@ def _official_note(record: ProviderUsageRecord) -> str:
         return "Delayed Google Cloud Billing export. May lag behind live Gemini calls."
     if record.provider == "openai":
         return "Official OpenAI organization/project billing. May be delayed or aggregated."
+    if record.provider == "exa":
+        return "Official Exa API-key billing. Account/key-level, not exact TheHiveMind run-level spend."
     return "Official provider data."
 
 
@@ -235,6 +270,8 @@ def _aggregate_note(provider: str, count: int) -> str:
         return f"Aggregated official OpenAI organization/project billing from {count} synced row(s). May be delayed by provider reporting."
     if provider == "google":
         return f"Aggregated Google/Gemini billing export from {count} synced row(s). BigQuery billing export can lag behind live calls."
+    if provider == "exa":
+        return f"Aggregated Exa API-key billing from {count} synced row(s). Use run-level Exa records for TheHiveMind search calls."
     return f"Aggregated official provider billing from {count} synced row(s)."
 
 

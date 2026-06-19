@@ -9,15 +9,15 @@ from app.storage.usage_store import UsageStore
 from app.usage_sync.schemas import ProviderUsageRecord, UsageReconciliationResult
 from app.usage_sync.sync_store import SyncStore
 
-PROVIDERS = ("openai", "openrouter", "google")
+PROVIDERS = ("openai", "openrouter", "google", "exa")
 
 
 async def reconcile_provider_usage(provider: str, time_range: str = "30d", settings: Settings | None = None, store: SyncStore | None = None) -> UsageReconciliationResult:
     settings = settings or get_settings()
     store = store or SyncStore(settings)
-    local_rows = _local_rows(provider, time_range, settings)
+    local_rows = _local_rows(provider, time_range, settings, store)
     safety_estimate = round(sum(_effective_cost(row) for row in local_rows), 6)
-    live_rows = [row for row in local_rows if _value(row, "mode") == "live"]
+    live_rows = [row for row in local_rows if _value(row, "mode") == "live" or isinstance(row, ProviderUsageRecord)]
     official = _official_records(provider, store)
     official_cost = _official_cost(provider, official)
     notes = _notes(provider, live_rows, official, store)
@@ -99,7 +99,9 @@ def store_provider_response_usage(
     )
 
 
-def _local_rows(provider: str, time_range: str, settings: Settings) -> list:
+def _local_rows(provider: str, time_range: str, settings: Settings, store: SyncStore) -> list:
+    if provider == "exa":
+        return [record for record in store.list_records("exa") if record.source == "provider_response"]
     rows = UsageAnalytics(UsageStore(settings), settings)._rows(time_range)
     aliases = {"google": {"google", "gemini"}, "openai": {"openai"}, "openrouter": {"openrouter"}}
     names = aliases.get(provider, {provider})
@@ -164,6 +166,8 @@ def _parse_datetime(value: str | None) -> datetime | None:
 
 
 def _effective_cost(row) -> float:
+    if isinstance(row, ProviderUsageRecord):
+        return float(row.provider_reported_cost_usd or row.safety_estimated_cost_usd or 0)
     actual = _value(row, "actual_cost_usd")
     if actual is not None:
         return float(actual)
@@ -172,4 +176,6 @@ def _effective_cost(row) -> float:
 
 
 def _value(row, field: str) -> Any:
+    if isinstance(row, ProviderUsageRecord):
+        return getattr(row, field, None)
     return row[field] if field in row.keys() else None

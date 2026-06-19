@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import agents, approvals, health, memory, official_usage, projects, providers, runs, usage
+from app.api import agent_registry, agents, approvals, health, memory, model_registry, official_usage, projects, providers, runs, search_tools, usage
 
 app = FastAPI(
     title="TheHiveMind API",
@@ -22,6 +22,9 @@ app.include_router(approvals.router)
 app.include_router(runs.router)
 app.include_router(projects.router)
 app.include_router(agents.router)
+app.include_router(agent_registry.router)
+app.include_router(model_registry.router)
+app.include_router(search_tools.router)
 app.include_router(memory.router)
 app.include_router(providers.router)
 app.include_router(usage.router)
@@ -40,6 +43,9 @@ def api_index() -> dict[str, object]:
             "approvals": "/api/approvals",
             "projects": "/api/projects",
             "agents": "/api/agents",
+            "agent_registry": "/api/agent-registry/agents",
+            "model_registry": "/api/model-registry/summary",
+            "search_tools": "/api/search-tools/status",
             "memory": "/api/memory/summary",
             "providers": "/api/providers/status",
             "usage": "/api/usage/summary",
