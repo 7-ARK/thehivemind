@@ -23,6 +23,8 @@ from app.core.model_registry import get_model_metadata
 from app.core.models import AgentInfo, FinalOutput, RunEvent, RunMetrics, RunRecord
 from app.memory.current_state import update_current_state
 from app.memory.embedding_memory import EmbeddingMemory
+from app.memory.context_packet import build_context_packet, format_context_packet
+from app.memory.memory_ingestor import MemoryIngestor
 from app.memory.retrieval import retrieve_memory
 from app.memory.vector_memory import LocalVectorMemory
 from app.orchestration.agent_context import AgentExecutionContext
@@ -68,6 +70,10 @@ def _is_research_only_command(command: str) -> bool:
     return "research only" in lowered or "only research" in lowered
 
 
+def _agent_id_from_name(agent_name: str) -> str:
+    return agent_name.lower().replace(" ", "_")
+
+
 async def execute_run(
     command: str,
     mode: str = "mock",
@@ -77,6 +83,7 @@ async def execute_run(
     allow_file_writes: bool = False,
     allow_safe_commands: bool = False,
     allow_web_search: bool = False,
+    use_memory: bool = True,
     max_cost_usd: float | None = None,
 ) -> RunResult:
     return await ExecutionEngine().execute_run(
@@ -88,6 +95,7 @@ async def execute_run(
         allow_file_writes=allow_file_writes,
         allow_safe_commands=allow_safe_commands,
         allow_web_search=allow_web_search,
+        use_memory=use_memory,
         max_cost_usd=max_cost_usd,
     )
 
@@ -143,8 +151,10 @@ class ExecutionEngine:
         allow_file_writes: bool = False,
         allow_safe_commands: bool = False,
         allow_web_search: bool = False,
+        use_memory: bool = True,
         max_cost_usd: float | None = None,
     ) -> RunRecord:
+        self._use_memory_for_current_run = use_memory
         if mode not in {"mock", "live"}:
             raise HTTPException(status_code=400, detail="mode must be 'mock' or 'live'.")
         if mode == "live":
@@ -155,7 +165,7 @@ class ExecutionEngine:
         run_id = str(uuid.uuid4())
         started_at = datetime.now(UTC)
         max_cost = min(max_cost_usd or self.settings.max_cost_per_run_usd, self.settings.max_cost_per_run_usd)
-        memory = retrieve_memory(command)
+        memory = retrieve_memory(command, project_id=project_id, run_type=run_type) if use_memory else retrieve_memory("", project_id=project_id, run_type=run_type)
         if run_type == "provider_test":
             return await self._execute_provider_test(
                 command=command,
@@ -436,9 +446,8 @@ class ExecutionEngine:
             final_output=final_output,
             artifacts=artifact_records,
         )
-        self._save_run(record)
         self._update_memory(record, model_selection)
-        return record
+        return self._finalize_run(record)
 
     async def _execute_research_only(
         self,
@@ -525,7 +534,7 @@ class ExecutionEngine:
                 artifact_id=research_artifact.id,
             )
         ]
-        qa_text = self._prototype_qa_review(command, research_text, [])
+        qa_text = self._prototype_qa_review(command, research_text, [], file_changes_count=0, search_result=search_result)
         qa_output = await self._run_step(
             run_id=run_id,
             command=command,
@@ -578,7 +587,7 @@ class ExecutionEngine:
             final_output=FinalOutput(
                 summary="Research-only workflow completed without Website Agent or file writes.",
                 what_was_done=["Selected research-only workflow.", "Produced a research brief.", "Stored source metadata or limitations.", "Skipped Website Agent and file writes."],
-                recommended_next_actions=["Review sources and limitations before using claims.", "Enable live web search only when you want paid/current provider data."],
+                recommended_next_actions=[self._search_next_action(search_result), "Review sources and limitations before using claims."],
                 generated_artifacts=[artifact.name for artifact in artifacts],
             ),
             artifacts=artifacts,
@@ -596,8 +605,7 @@ class ExecutionEngine:
             agent_plan=agent_plan.model_dump(),
             model_selection=selected_models,
         )
-        self._save_run(record)
-        return record
+        return self._finalize_run(record)
 
     async def _execute_provider_test(
         self,
@@ -701,8 +709,7 @@ class ExecutionEngine:
                 "official_usage_sync": "scheduled_after_live_run",
             },
         )
-        self._save_run(record)
-        return record
+        return self._finalize_run(record)
 
     async def _execute_website_update(
         self,
@@ -886,7 +893,7 @@ class ExecutionEngine:
             model=qa_model,
             request_type="validation",
             prompt=qa_input,
-            mock_output=self._prototype_qa_review(command, qa_input, command_results),
+            mock_output=self._prototype_qa_review(command, qa_input, command_results, file_changes_count=len(file_entries)),
         )
         qa_artifact = self.artifacts.save_text(
             run_id=run_id,
@@ -1037,8 +1044,7 @@ class ExecutionEngine:
             agent_plan=agent_plan.model_dump(),
             model_selection=selected_models,
         )
-        self._save_run(record)
-        return record
+        return self._finalize_run(record)
 
     async def _execute_prototype_build(
         self,
@@ -1383,7 +1389,7 @@ class ExecutionEngine:
             model=agents["qa"].assigned_model,
             request_type="validation",
             prompt=qa_packet.model_dump_json(indent=2),
-            mock_output=self._prototype_qa_review(command, qa_input, command_results),
+            mock_output=self._prototype_qa_review(command, qa_input, command_results, file_changes_count=len(file_entries)),
         )
         qa_artifact = self.artifacts.save_text(
             run_id=run_id,
@@ -1556,7 +1562,16 @@ class ExecutionEngine:
             agent_plan=agent_plan.model_dump(),
             model_selection=selected_models,
         )
+        return self._finalize_run(record)
+
+    def _finalize_run(self, record: RunRecord) -> RunRecord:
         self._save_run(record)
+        if self.settings.memory_ingest_after_run:
+            result = MemoryIngestor(self.settings).ingest_record(record)
+            memory_ids = result.get("memory_ids", [])
+            if memory_ids:
+                record.memory_updates = [*record.memory_updates, *memory_ids]
+                self._save_run(record)
         return record
 
     def _build_agents(self, *, allow_ceo_live: bool, mode: str) -> dict[str, Any]:
@@ -1588,6 +1603,19 @@ class ExecutionEngine:
         mock_output: str,
     ) -> dict[str, Any]:
         metadata = get_model_metadata(model, self.settings.ceo_service_tier if model == self.settings.ceo_model else None)
+        memory_context = ""
+        if getattr(self, "_use_memory_for_current_run", True) and self.settings.enable_vector_memory and ((mode == "mock" and self.settings.memory_use_in_mock) or (mode == "live" and self.settings.memory_use_in_live)):
+            packet = build_context_packet(
+                agent_id=_agent_id_from_name(agent_name),
+                project_id=None,
+                run_id=run_id,
+                run_type=request_type,
+                task=request_type,
+                current_command=command,
+                settings=self.settings,
+            )
+            memory_context = format_context_packet(packet)
+        prompt_with_memory = f"{memory_context}\n\n{prompt}" if memory_context else prompt
         context = AgentExecutionContext(
             run_id=run_id,
             project_id="unassigned",
@@ -1596,7 +1624,7 @@ class ExecutionEngine:
             agent_role=agent_role,
             command=command,
             task_objective=request_type,
-            relevant_memory=[],
+            relevant_memory=[memory_context] if memory_context else [],
             relevant_project_files=[],
             input_artifacts=[],
             constraints=["Do not browse the web.", "Do not expose secrets.", "Do not perform external actions."],
@@ -1607,7 +1635,7 @@ class ExecutionEngine:
             max_cost_usd=self.settings.max_cost_per_call_usd,
         )
         if mode == "mock":
-            input_tokens = estimate_tokens(prompt)
+            input_tokens = estimate_tokens(prompt_with_memory)
             output_tokens = estimate_tokens(mock_output)
             cost = estimate_cost_usd(model, input_tokens, output_tokens)
             self.usage.log_call(
@@ -1632,7 +1660,7 @@ class ExecutionEngine:
             output = await run_llm_agent(
                 context,
                 "You are an agent inside TheHiveMind. Produce concise, structured, safe output.",
-                prompt,
+                prompt_with_memory,
                 settings=self.settings,
                 usage_store=self.usage,
                 request_type=request_type,
@@ -1649,7 +1677,7 @@ class ExecutionEngine:
             "provider": metadata.provider,
             "model": model,
             "request_type": request_type,
-            "input": prompt,
+            "input": prompt_with_memory,
             "text": output_text,
             "input_tokens": input_tokens,
             "output_tokens": output_tokens,
@@ -1875,17 +1903,33 @@ Run Engine v1 completed a controlled, sequential workflow and saved stage output
         note = f"Rejected file actions: {', '.join(rejected)}" if rejected else ""
         return entries, note
 
-    def _prototype_qa_review(self, command: str, qa_input: str, command_results: list[CommandResult]) -> str:
+    def _prototype_qa_review(
+        self,
+        command: str,
+        qa_input: str,
+        command_results: list[CommandResult],
+        *,
+        file_changes_count: int = 1,
+        search_result: SearchResultPayload | None = None,
+    ) -> str:
         command_status = "passed" if all(result.allowed and result.exit_code == 0 for result in command_results) else "needs review"
+        file_review = (
+            "- No project files were updated because this was a research-only workflow."
+            if file_changes_count == 0
+            else "- Project files were generated or updated under the persistent project workspace.\n- Generated files include Python, Markdown, JSON, and HTML."
+        )
+        search_review = self._search_qa_wording(search_result)
         return f"""# Prototype QA Review
 
 ## Command
 {command}
 
 ## File Review
-- Project files were generated or updated under the persistent project workspace.
-- Generated files include Python, Markdown, JSON, and HTML.
+{file_review}
 - No `.env` files, dependency installs, deployments, emails, or social posts were created.
+
+## Search Review
+{search_review}
 
 ## Command Validation
 - Safe command status: {command_status}
@@ -1902,6 +1946,28 @@ Run Engine v1 completed a controlled, sequential workflow and saved stage output
 ## Status
 Approved for local review only. Human approval is still required before public use, deployment, or live customer handling.
 """
+
+    def _search_qa_wording(self, search_result: SearchResultPayload | None) -> str:
+        if search_result is None:
+            return "- No search was used in this workflow."
+        if search_result.error_type:
+            if search_result.error_type == "search_unavailable":
+                return "- Search was unavailable/skipped. No current claims should be made."
+            return f"- Search failed. Use the error message and do not make current claims. Error: {search_result.error_message or search_result.error_type}"
+        if search_result.mock_fixture:
+            return "- Mock search fixture was used. Do not treat these as real sources."
+        if search_result.research_used and search_result.sources:
+            return "- Live search was executed and sources were stored. Review source quality before public use."
+        return "- Search was skipped/unavailable. No current claims should be made."
+
+    def _search_next_action(self, search_result: SearchResultPayload) -> str:
+        if search_result.error_type:
+            return "Search was skipped/unavailable. Enable web search to collect current sources."
+        if search_result.mock_fixture:
+            return "Mock search fixtures were used. Enable live search for current provider data."
+        if search_result.research_used:
+            return "Live web search was enabled. Review source quality and search cost before using the findings publicly."
+        return "Search was skipped/unavailable. Enable web search to collect current sources."
 
     async def _run_research_search(
         self,

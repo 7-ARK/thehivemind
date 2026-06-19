@@ -40,6 +40,7 @@ async def start_run(payload: RunCreate) -> RunStartResponse:
         allow_file_writes=payload.allow_file_writes,
         allow_safe_commands=payload.allow_safe_commands,
         allow_web_search=payload.allow_web_search,
+        use_memory=payload.use_memory,
         max_cost_usd=payload.max_cost_usd,
     )
     if record.mode == "live":

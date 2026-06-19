@@ -1,0 +1,2376 @@
+﻿{
+    "project_id":  "greek-yogurt-test",
+    "items":  [
+                  {
+                      "id":  "cb7a9cbd-db23-452e-9a27-c8b5d0b38a4a",
+                      "project_id":  "greek-yogurt-test",
+                      "scope":  "project",
+                      "memory_type":  "next_step",
+                      "title":  "Next step 30c7da1d",
+                      "content":  "Review files in Project Workspace.\nRun the site locally before any public use.",
+                      "summary":  "Review files in Project Workspace.",
+                      "source_type":  "run",
+                      "source_path":  null,
+                      "source_run_id":  "30c7da1d-281a-4c5e-aeda-ef5e35a0656b",
+                      "source_artifact_id":  null,
+                      "created_at":  "2026-06-19T18:32:53.715695+00:00",
+                      "updated_at":  "2026-06-19T18:32:53.715695+00:00",
+                      "tags":  [
+                                   "greek-yogurt-test",
+                                   "website_update",
+                                   "mock",
+                                   "next_step"
+                               ],
+                      "importance":  3,
+                      "recency_score":  1.0,
+                      "trust_score":  0.8,
+                      "expires_at":  null,
+                      "is_active":  true,
+                      "is_sensitive":  false,
+                      "should_inject_by_default":  true,
+                      "allowed_agents":  [
+
+                                         ],
+                      "blocked_agents":  [
+
+                                         ],
+                      "token_estimate":  21,
+                      "sparse_vector":  {
+                                            "next":  0.2,
+                                            "step":  0.2,
+                                            "30c7da1d":  0.2,
+                                            "review":  0.4,
+                                            "files":  0.4,
+                                            "project":  0.4,
+                                            "workspace":  0.4,
+                                            "site":  0.2,
+                                            "locally":  0.2,
+                                            "before":  0.2,
+                                            "any":  0.2,
+                                            "public":  0.2,
+                                            "use":  0.2
+                                        },
+                      "keywords":  [
+                                       "review",
+                                       "files",
+                                       "project",
+                                       "workspace",
+                                       "next",
+                                       "step",
+                                       "30c7da1d",
+                                       "site",
+                                       "locally",
+                                       "before",
+                                       "any",
+                                       "public"
+                                   ],
+                      "normalized_text":  "next step 30c7da1d review files project workspace review files project workspace site locally before any public use",
+                      "hash":  "d4750ede553d988e",
+                      "constraints":  [
+
+                                      ],
+                      "models_used":  [
+
+                                      ],
+                      "agents_used":  [
+
+                                      ],
+                      "search_provider":  null,
+                      "source_urls":  [
+
+                                      ],
+                      "file_paths":  [
+
+                                     ],
+                      "error_types":  [
+
+                                      ],
+                      "metadata":  {
+
+                                   }
+                  },
+                  {
+                      "id":  "07233856-7e0b-4353-b28d-ff2f4ef87d43",
+                      "project_id":  "greek-yogurt-test",
+                      "scope":  "project",
+                      "memory_type":  "file_change_summary",
+                      "title":  "File changes 30c7da1d",
+                      "content":  "website/README.md\nwebsite/app.py\nwebsite/requirements.txt\nwebsite/data/sample_orders.json\nwebsite/templates/index.html\nwebsite/templates/status.html\nwebsite/data/order_statuses.json\nwebsite/data/faqs.json\nproject_state.md",
+                      "summary":  "Changed 9 project file(s): website/README.md, website/app.py, website/requirements.txt, website/data/sample_orders.json, website/templates/index.html, website/templates/status.html, website/data/order_statuses.json, website/data/faqs.json, project_state.md",
+                      "source_type":  "run",
+                      "source_path":  null,
+                      "source_run_id":  "30c7da1d-281a-4c5e-aeda-ef5e35a0656b",
+                      "source_artifact_id":  null,
+                      "created_at":  "2026-06-19T18:32:53.705694+00:00",
+                      "updated_at":  "2026-06-19T18:32:53.705694+00:00",
+                      "tags":  [
+                                   "greek-yogurt-test",
+                                   "website_update",
+                                   "mock",
+                                   "files"
+                               ],
+                      "importance":  3,
+                      "recency_score":  1.0,
+                      "trust_score":  0.8,
+                      "expires_at":  null,
+                      "is_active":  true,
+                      "is_sensitive":  false,
+                      "should_inject_by_default":  true,
+                      "allowed_agents":  [
+                                             "website_agent",
+                                             "qa_agent"
+                                         ],
+                      "blocked_agents":  [
+
+                                         ],
+                      "token_estimate":  25,
+                      "sparse_vector":  {
+                                            "file":  0.099015,
+                                            "changes":  0.049507,
+                                            "30c7da1d":  0.049507,
+                                            "changed":  0.049507,
+                                            "project":  0.049507,
+                                            "website":  0.792118,
+                                            "readme":  0.099015,
+                                            "app":  0.099015,
+                                            "requirements":  0.099015,
+                                            "txt":  0.099015,
+                                            "data":  0.297044,
+                                            "sample_orders":  0.099015,
+                                            "json":  0.297044,
+                                            "templates":  0.19803,
+                                            "index":  0.099015,
+                                            "html":  0.19803,
+                                            "status":  0.099015,
+                                            "order_statuses":  0.099015,
+                                            "faqs":  0.099015,
+                                            "project_state":  0.099015
+                                        },
+                      "keywords":  [
+                                       "website",
+                                       "data",
+                                       "json",
+                                       "templates",
+                                       "html",
+                                       "file",
+                                       "readme",
+                                       "app",
+                                       "requirements",
+                                       "txt",
+                                       "sample_orders",
+                                       "index"
+                                   ],
+                      "normalized_text":  "file changes 30c7da1d changed project file website readme website app website requirements txt website data sample_orders json website templates index html website templates status html website data order_statuses json website data faqs json project_state website readme website app website requirements txt website data sample_orders json website templates index html website templates status html website data order_statuses json website data faqs json project_state",
+                      "hash":  "d4b982bdb35bdf5b",
+                      "constraints":  [
+
+                                      ],
+                      "models_used":  [
+
+                                      ],
+                      "agents_used":  [
+
+                                      ],
+                      "search_provider":  null,
+                      "source_urls":  [
+
+                                      ],
+                      "file_paths":  [
+                                         "website/README.md",
+                                         "website/app.py",
+                                         "website/requirements.txt",
+                                         "website/data/sample_orders.json",
+                                         "website/templates/index.html",
+                                         "website/templates/status.html",
+                                         "website/data/order_statuses.json",
+                                         "website/data/faqs.json",
+                                         "project_state.md"
+                                     ],
+                      "error_types":  [
+
+                                      ],
+                      "metadata":  {
+
+                                   }
+                  },
+                  {
+                      "id":  "6b8c6e1e-8682-4762-9057-eb569f5e9df2",
+                      "project_id":  "greek-yogurt-test",
+                      "scope":  "project",
+                      "memory_type":  "safety_constraint",
+                      "title":  "Constraints from 30c7da1d",
+                      "content":  "Do not use GPT-5.5 unless explicitly approved.\nDo not deploy, install packages, take payments, send emails, or post publicly without explicit approval.\nOnly update website/ for website_update.\nThe current command explicitly blocks GPT-5.5.",
+                      "summary":  "Do not use GPT-5.5 unless explicitly approved.; Do not deploy, install packages, take payments, send emails, or post publicly without explicit approval.; Only update website/ for website_update.; The current command explicitly blocks GPT-5.5.",
+                      "source_type":  "run",
+                      "source_path":  null,
+                      "source_run_id":  "30c7da1d-281a-4c5e-aeda-ef5e35a0656b",
+                      "source_artifact_id":  null,
+                      "created_at":  "2026-06-19T18:32:53.695195+00:00",
+                      "updated_at":  "2026-06-19T18:32:53.695195+00:00",
+                      "tags":  [
+                                   "greek-yogurt-test",
+                                   "website_update",
+                                   "mock",
+                                   "constraints"
+                               ],
+                      "importance":  5,
+                      "recency_score":  1.0,
+                      "trust_score":  0.8,
+                      "expires_at":  null,
+                      "is_active":  true,
+                      "is_sensitive":  false,
+                      "should_inject_by_default":  true,
+                      "allowed_agents":  [
+
+                                         ],
+                      "blocked_agents":  [
+
+                                         ],
+                      "token_estimate":  69,
+                      "sparse_vector":  {
+                                            "constraints":  0.092057,
+                                            "30c7da1d":  0.092057,
+                                            "use":  0.184115,
+                                            "gpt-5":  0.36823,
+                                            "unless":  0.184115,
+                                            "explicitly":  0.36823,
+                                            "approved":  0.184115,
+                                            "deploy":  0.184115,
+                                            "install":  0.184115,
+                                            "packages":  0.184115,
+                                            "take":  0.184115,
+                                            "payments":  0.184115,
+                                            "send":  0.184115,
+                                            "emails":  0.184115,
+                                            "post":  0.184115,
+                                            "publicly":  0.184115,
+                                            "without":  0.184115,
+                                            "explicit":  0.184115,
+                                            "approval":  0.184115,
+                                            "update":  0.184115,
+                                            "website":  0.184115,
+                                            "website_update":  0.184115,
+                                            "current":  0.184115,
+                                            "command":  0.184115,
+                                            "blocks":  0.184115
+                                        },
+                      "keywords":  [
+                                       "gpt-5",
+                                       "explicitly",
+                                       "use",
+                                       "unless",
+                                       "approved",
+                                       "deploy",
+                                       "install",
+                                       "packages",
+                                       "take",
+                                       "payments",
+                                       "send",
+                                       "emails"
+                                   ],
+                      "normalized_text":  "constraints 30c7da1d use gpt-5 unless explicitly approved deploy install packages take payments send emails post publicly without explicit approval update website website_update current command explicitly blocks gpt-5 use gpt-5 unless explicitly approved deploy install packages take payments send emails post publicly without explicit approval update website website_update current command explicitly blocks gpt-5",
+                      "hash":  "dec495091aa200d2",
+                      "constraints":  [
+
+                                      ],
+                      "models_used":  [
+
+                                      ],
+                      "agents_used":  [
+
+                                      ],
+                      "search_provider":  null,
+                      "source_urls":  [
+
+                                      ],
+                      "file_paths":  [
+
+                                     ],
+                      "error_types":  [
+
+                                      ],
+                      "metadata":  {
+
+                                   }
+                  },
+                  {
+                      "id":  "a2093230-79e1-4527-a9e1-48e94ae07c24",
+                      "project_id":  "greek-yogurt-test",
+                      "scope":  "project",
+                      "memory_type":  "qa_warning",
+                      "title":  "QA warnings 30c7da1d",
+                      "content":  "# Prototype QA Review ## Command Use the previous Exa competitor research from memory to improve the Greek yogurt homepage copy. Only update website files. Do not deploy. Do not install packages. Do not use GPT-5.5. Do not run live web search. ## File Review - Project files were generated or updated under the persistent project workspace. - Generated files include Python, Markdown, JSON, and HTML. - No `.env` files, dependency installs, deployments, emails, or social posts were created. ## Search Review - No search was used in this workflow. ## Command Validation - Safe command status: passed - Commands reviewed: 1 ## Safety Review - File writes were limited to the approved project workspace. - Validation used the command allowlist. - Prototype server was not started automatically. ## Handoff Summary Agent plan: { \"run_goal\": \"Use the previous Exa competitor research from memory to improve the Greek yogurt homepage copy. Only update website files. Do not deploy. Do not install packages",
+                      "summary":  "Use the previous Exa competitor research from memory to improve the Greek yogurt homepage copy. Only update website files. Do not deploy. Do not install packages. Do not use GPT-5.5. Do not run live web search.; \"run_goal\": \"Use the previous Exa competitor research from memory to improve the Greek yogurt homepage copy. Only update website files. Do not deploy. Do not install packages. Do not use GPT-5.5. Do not run live web search.\",; \"objective\": \"Research or summarize relevant context without pretending to browse if search is disabled. Command: Use the previous Exa competitor research from memory to improve the Greek yogurt homepage copy. Only update website files. Do not deploy. Do not install packages. Do not use GPT-5.5. Do not run live web search.\",; \"estimated_risk\": \"low\",; Approved for local review only. Human approval is still required before public use, deployment, or live customer handling.",
+                      "source_type":  "qa_review",
+                      "source_path":  "qa_review.md",
+                      "source_run_id":  "30c7da1d-281a-4c5e-aeda-ef5e35a0656b",
+                      "source_artifact_id":  "74e1f550-8d39-4a4c-a599-f4145518839c",
+                      "created_at":  "2026-06-19T18:32:53.671694+00:00",
+                      "updated_at":  "2026-06-19T18:32:53.671694+00:00",
+                      "tags":  [
+                                   "greek-yogurt-test",
+                                   "website_update",
+                                   "mock",
+                                   "qa",
+                                   "warnings"
+                               ],
+                      "importance":  4,
+                      "recency_score":  1.0,
+                      "trust_score":  0.8,
+                      "expires_at":  null,
+                      "is_active":  true,
+                      "is_sensitive":  false,
+                      "should_inject_by_default":  true,
+                      "allowed_agents":  [
+                                             "qa_agent",
+                                             "website_agent",
+                                             "research_agent"
+                                         ],
+                      "blocked_agents":  [
+
+                                         ],
+                      "token_estimate":  308,
+                      "sparse_vector":  {
+                                            "warnings":  0.035311,
+                                            "30c7da1d":  0.035311,
+                                            "use":  0.353112,
+                                            "previous":  0.176556,
+                                            "exa":  0.176556,
+                                            "competitor":  0.176556,
+                                            "research":  0.211867,
+                                            "memory":  0.176556,
+                                            "improve":  0.176556,
+                                            "greek":  0.176556,
+                                            "yogurt":  0.176556,
+                                            "homepage":  0.176556,
+                                            "copy":  0.176556,
+                                            "update":  0.176556,
+                                            "website":  0.176556,
+                                            "files":  0.28249,
+                                            "deploy":  0.176556,
+                                            "install":  0.176556,
+                                            "packages":  0.176556,
+                                            "gpt-5":  0.141245,
+                                            "live":  0.176556,
+                                            "web":  0.141245,
+                                            "search":  0.247179,
+                                            "run_goal":  0.070622,
+                                            "objective":  0.035311,
+                                            "summarize":  0.035311,
+                                            "relevant":  0.035311,
+                                            "context":  0.035311,
+                                            "without":  0.035311,
+                                            "pretending":  0.035311,
+                                            "browse":  0.035311,
+                                            "disabled":  0.035311,
+                                            "command":  0.176556,
+                                            "estimated_risk":  0.035311,
+                                            "low":  0.035311,
+                                            "approved":  0.070622,
+                                            "local":  0.035311,
+                                            "review":  0.176556,
+                                            "human":  0.035311,
+                                            "approval":  0.035311,
+                                            "still":  0.035311,
+                                            "required":  0.035311,
+                                            "before":  0.035311,
+                                            "public":  0.035311,
+                                            "deployment":  0.035311,
+                                            "customer":  0.035311,
+                                            "handling":  0.035311,
+                                            "prototype":  0.070622,
+                                            "file":  0.070622,
+                                            "project":  0.105934,
+                                            "generated":  0.070622,
+                                            "updated":  0.035311,
+                                            "under":  0.035311,
+                                            "persistent":  0.035311,
+                                            "workspace":  0.070622,
+                                            "include":  0.035311,
+                                            "python":  0.035311,
+                                            "markdown":  0.035311,
+                                            "json":  0.035311,
+                                            "html":  0.035311,
+                                            "env":  0.035311,
+                                            "dependency":  0.035311,
+                                            "installs":  0.035311,
+                                            "deployments":  0.035311,
+                                            "emails":  0.035311,
+                                            "social":  0.035311,
+                                            "posts":  0.035311,
+                                            "created":  0.035311,
+                                            "used":  0.070622,
+                                            "workflow":  0.035311,
+                                            "validation":  0.070622,
+                                            "safe":  0.035311,
+                                            "status":  0.035311,
+                                            "passed":  0.035311,
+                                            "commands":  0.035311,
+                                            "reviewed":  0.035311,
+                                            "safety":  0.035311,
+                                            "writes":  0.035311,
+                                            "limited":  0.035311,
+                                            "allowlist":  0.035311,
+                                            "server":  0.035311,
+                                            "started":  0.035311,
+                                            "automatically":  0.035311,
+                                            "handoff":  0.035311,
+                                            "summary":  0.035311,
+                                            "agent":  0.035311,
+                                            "plan":  0.035311
+                                        },
+                      "keywords":  [
+                                       "use",
+                                       "files",
+                                       "search",
+                                       "research",
+                                       "previous",
+                                       "exa",
+                                       "competitor",
+                                       "memory",
+                                       "improve",
+                                       "greek",
+                                       "yogurt",
+                                       "homepage"
+                                   ],
+                      "normalized_text":  "warnings 30c7da1d use previous exa competitor research memory improve greek yogurt homepage copy update website files deploy install packages use gpt-5 live web search run_goal use previous exa competitor research memory improve greek yogurt homepage copy update website files deploy install packages use gpt-5 live web search objective research summarize relevant context without pretending browse search disabled command use previous exa competitor research memory improve greek yogurt homepage copy update website files deploy install packages use gpt-5 live web search estimated_risk low approved local review human approval still required before public use deployment live customer handling prototype review command use previous exa competitor research memory improve greek yogurt homepage copy update website files deploy install packages use gpt-5 live web search file review project files generated updated under persistent project workspace generated files include python markdown json html env files dependency installs deployments emails social posts created search review search used workflow command validation safe command status passed commands reviewed safety review file writes limited approved project workspace validation used command allowlist prototype server started automatically handoff summary agent plan run_goal use previous exa competitor research memory improve greek yogurt homepage copy update website files deploy install packages",
+                      "hash":  "068d575b90b09699",
+                      "constraints":  [
+
+                                      ],
+                      "models_used":  [
+
+                                      ],
+                      "agents_used":  [
+
+                                      ],
+                      "search_provider":  null,
+                      "source_urls":  [
+
+                                      ],
+                      "file_paths":  [
+
+                                     ],
+                      "error_types":  [
+
+                                      ],
+                      "metadata":  {
+
+                                   }
+                  },
+                  {
+                      "id":  "9245de8c-c296-4dae-8ea9-06726d230dd0",
+                      "project_id":  "greek-yogurt-test",
+                      "scope":  "project",
+                      "memory_type":  "research_source_summary",
+                      "title":  "Research sources 30c7da1d",
+                      "content":  "{\"search_used\": false, \"search_unavailable\": true, \"provider_id\": null, \"mock_fixture\": false, \"cache_hit\": false, \"reason\": \"Web search was disabled or no search provider was selected.\", \"error_type\": \"search_unavailable\", \"error_message\": \"Web search was disabled or no search provider was selected.\", \"source_count\": 0, \"cost\": {}, \"sources\": []}",
+                      "summary":  "unknown search source summary: 0 source(s), status skipped.",
+                      "source_type":  "search_source",
+                      "source_path":  "research_sources.json",
+                      "source_run_id":  "30c7da1d-281a-4c5e-aeda-ef5e35a0656b",
+                      "source_artifact_id":  "fa62cee4-606a-4a63-b346-1827da864b61",
+                      "created_at":  "2026-06-19T18:32:53.604376+00:00",
+                      "updated_at":  "2026-06-19T18:32:53.604376+00:00",
+                      "tags":  [
+                                   "greek-yogurt-test",
+                                   "website_update",
+                                   "mock",
+                                   "sources",
+                                   ""
+                               ],
+                      "importance":  4,
+                      "recency_score":  1.0,
+                      "trust_score":  0.8,
+                      "expires_at":  null,
+                      "is_active":  true,
+                      "is_sensitive":  false,
+                      "should_inject_by_default":  true,
+                      "allowed_agents":  [
+                                             "research_agent",
+                                             "website_agent",
+                                             "qa_agent"
+                                         ],
+                      "blocked_agents":  [
+
+                                         ],
+                      "token_estimate":  51,
+                      "sparse_vector":  {
+                                            "research":  0.112509,
+                                            "sources":  0.225018,
+                                            "30c7da1d":  0.112509,
+                                            "unknown":  0.112509,
+                                            "search":  0.562544,
+                                            "source":  0.225018,
+                                            "summary":  0.112509,
+                                            "status":  0.112509,
+                                            "skipped":  0.112509,
+                                            "search_used":  0.112509,
+                                            "false":  0.337526,
+                                            "search_unavailable":  0.225018,
+                                            "true":  0.112509,
+                                            "provider_id":  0.112509,
+                                            "null":  0.112509,
+                                            "mock_fixture":  0.112509,
+                                            "cache_hit":  0.112509,
+                                            "reason":  0.112509,
+                                            "web":  0.225018,
+                                            "disabled":  0.225018,
+                                            "provider":  0.225018,
+                                            "selected":  0.225018,
+                                            "error_type":  0.112509,
+                                            "error_message":  0.112509,
+                                            "source_count":  0.112509,
+                                            "cost":  0.112509
+                                        },
+                      "keywords":  [
+                                       "search",
+                                       "false",
+                                       "sources",
+                                       "source",
+                                       "search_unavailable",
+                                       "web",
+                                       "disabled",
+                                       "provider",
+                                       "selected",
+                                       "research",
+                                       "30c7da1d",
+                                       "unknown"
+                                   ],
+                      "normalized_text":  "research sources 30c7da1d unknown search source summary source status skipped search_used false search_unavailable true provider_id null mock_fixture false cache_hit false reason web search disabled search provider selected error_type search_unavailable error_message web search disabled search provider selected source_count cost sources",
+                      "hash":  "65b23f2aa11184a5",
+                      "constraints":  [
+
+                                      ],
+                      "models_used":  [
+
+                                      ],
+                      "agents_used":  [
+
+                                      ],
+                      "search_provider":  null,
+                      "source_urls":  [
+
+                                      ],
+                      "file_paths":  [
+
+                                     ],
+                      "error_types":  [
+
+                                      ],
+                      "metadata":  {
+                                       "mock_fixture":  false,
+                                       "source_count":  0
+                                   }
+                  },
+                  {
+                      "id":  "8bd5accd-9de8-4fa4-93e6-c72d44854d73",
+                      "project_id":  "greek-yogurt-test",
+                      "scope":  "project",
+                      "memory_type":  "research_brief",
+                      "title":  "Research brief 30c7da1d",
+                      "content":  "# Research Brief ## Command Use the previous Exa competitor research from memory to improve the Greek yogurt homepage copy. Only update website files. Do not deploy. Do not install packages. Do not use GPT-5.5. Do not run live web search. ## Search Selection - Search needed: True - Search unavailable: True - Selected provider: none ## Findings - This run prepared a research-only handoff and did not run Website Agent. - Use the source list and limitations below before making product, pricing, competitor, or market claims. - Current/fresh claims require live provider search approval and configured provider keys. - Search brief: Web search was disabled or no search provider was selected. ## Sources - No live sources collected. ## Limitations - Web search was needed but unavailable or disabled; do not treat this as fresh research.",
+                      "summary":  "# Research Brief ## Command Use the previous Exa competitor research from memory to improve the Greek yogurt homepage copy. Only update website files. Do not deploy. Do not install packages. Do not use GPT-5.5. Do not run live web search. ## Search Selection - Search needed: True - Search unavailable: True - Selected provider: none ## Findings - This run prepared a research-only handoff and did not run Website Agent. - Use the source list and limitations below before making product, pricing, competitor, or market claims. - Current/fresh claims require live provider search approval and configured provider keys. - Search brief: Web search was disabled or no search provider was selected. ## Sou",
+                      "source_type":  "artifact",
+                      "source_path":  "research_brief.md",
+                      "source_run_id":  "30c7da1d-281a-4c5e-aeda-ef5e35a0656b",
+                      "source_artifact_id":  "b4d3199a-5693-423d-8d43-a9148c727c4e",
+                      "created_at":  "2026-06-19T18:32:53.592876+00:00",
+                      "updated_at":  "2026-06-19T18:32:53.592876+00:00",
+                      "tags":  [
+                                   "greek-yogurt-test",
+                                   "website_update",
+                                   "mock",
+                                   "research"
+                               ],
+                      "importance":  4,
+                      "recency_score":  1.0,
+                      "trust_score":  0.8,
+                      "expires_at":  null,
+                      "is_active":  true,
+                      "is_sensitive":  false,
+                      "should_inject_by_default":  true,
+                      "allowed_agents":  [
+                                             "research_agent",
+                                             "website_agent",
+                                             "qa_agent"
+                                         ],
+                      "blocked_agents":  [
+
+                                         ],
+                      "token_estimate":  254,
+                      "sparse_vector":  {
+                                            "research":  0.215249,
+                                            "brief":  0.179374,
+                                            "30c7da1d":  0.035875,
+                                            "command":  0.07175,
+                                            "use":  0.215249,
+                                            "previous":  0.07175,
+                                            "exa":  0.07175,
+                                            "competitor":  0.143499,
+                                            "memory":  0.07175,
+                                            "improve":  0.07175,
+                                            "greek":  0.07175,
+                                            "yogurt":  0.07175,
+                                            "homepage":  0.07175,
+                                            "copy":  0.07175,
+                                            "update":  0.07175,
+                                            "website":  0.143499,
+                                            "files":  0.07175,
+                                            "deploy":  0.07175,
+                                            "install":  0.07175,
+                                            "packages":  0.07175,
+                                            "gpt-5":  0.07175,
+                                            "live":  0.179374,
+                                            "web":  0.179374,
+                                            "search":  0.609872,
+                                            "selection":  0.07175,
+                                            "needed":  0.107624,
+                                            "true":  0.143499,
+                                            "unavailable":  0.107624,
+                                            "selected":  0.143499,
+                                            "provider":  0.286998,
+                                            "none":  0.07175,
+                                            "findings":  0.07175,
+                                            "prepared":  0.07175,
+                                            "research-only":  0.07175,
+                                            "handoff":  0.07175,
+                                            "did":  0.07175,
+                                            "agent":  0.07175,
+                                            "source":  0.07175,
+                                            "list":  0.07175,
+                                            "limitations":  0.107624,
+                                            "below":  0.07175,
+                                            "before":  0.07175,
+                                            "making":  0.07175,
+                                            "product":  0.07175,
+                                            "pricing":  0.07175,
+                                            "market":  0.07175,
+                                            "claims":  0.143499,
+                                            "current":  0.07175,
+                                            "fresh":  0.107624,
+                                            "require":  0.07175,
+                                            "approval":  0.07175,
+                                            "configured":  0.07175,
+                                            "keys":  0.07175,
+                                            "disabled":  0.107624,
+                                            "sou":  0.035875,
+                                            "sources":  0.07175,
+                                            "collected":  0.035875,
+                                            "treat":  0.035875
+                                        },
+                      "keywords":  [
+                                       "search",
+                                       "provider",
+                                       "research",
+                                       "use",
+                                       "brief",
+                                       "live",
+                                       "web",
+                                       "competitor",
+                                       "website",
+                                       "true",
+                                       "selected",
+                                       "claims"
+                                   ],
+                      "normalized_text":  "research brief 30c7da1d research brief command use previous exa competitor research memory improve greek yogurt homepage copy update website files deploy install packages use gpt-5 live web search search selection search needed true search unavailable true selected provider none findings prepared research-only handoff did website agent use source list limitations below before making product pricing competitor market claims current fresh claims require live provider search approval configured provider keys search brief web search disabled search provider selected sou research brief command use previous exa competitor research memory improve greek yogurt homepage copy update website files deploy install packages use gpt-5 live web search search selection search needed true search unavailable true selected provider none findings prepared research-only handoff did website agent use source list limitations below before making product pricing competitor market claims current fresh claims require live provider search approval configured provider keys search brief web search disabled search provider selected sources live sources collected limitations web search needed unavailable disabled treat fresh research",
+                      "hash":  "ff89f9660d1b8854",
+                      "constraints":  [
+
+                                      ],
+                      "models_used":  [
+
+                                      ],
+                      "agents_used":  [
+
+                                      ],
+                      "search_provider":  null,
+                      "source_urls":  [
+
+                                      ],
+                      "file_paths":  [
+
+                                     ],
+                      "error_types":  [
+
+                                      ],
+                      "metadata":  {
+
+                                   }
+                  },
+                  {
+                      "id":  "d3c078c3-fc96-49f4-8544-5d4aaa1d5c1b",
+                      "project_id":  "greek-yogurt-test",
+                      "scope":  "project",
+                      "memory_type":  "model_selection",
+                      "title":  "model_selection 30c7da1d",
+                      "content":  "{\"research_agent\": {\"selected_model_id\": \"gemini-3.1-flash-lite\", \"provider\": \"gemini\", \"reason\": \"Selected Gemini 3.1 Flash-Lite for research_agent. It satisfies the low-cost guard. Matched tags: cheap, research, summary. Required capabilities checked: json, summarization.\", \"confidence\": 0.8333333333333334, \"estimated_risk\": \"low\", \"requires_approval\": false, \"fallback_model_id\": \"gpt-5.4-nano\", \"why_not_others\": [{\"model_id\": \"gpt-5.4-nano\", \"reason\": \"Lower deterministic selector score for this agent/task.\"}, {\"model_id\": \"gemini-3.5-flash\", \"reason\": \"Lower deterministic selector score for this agent/task.\"}, {\"model_id\": \"local-mock-research-summarizer\", \"reason\": \"Lower deterministic selector score for this agent/task.\"}, {\"model_id\": \"gpt-5.5\", \"reason\": \"Excluded by user constraint.\"}, {\"model_id\": \"gpt-5.5:flex\", \"reason\": \"Excluded by user constraint.\"}, {\"model_id\": \"qwen/qwen3-coder\", \"reason\": \"Model is not allowed for agent role research_agent.\"}, {\"model_id\": \"openrouter-coding-fallback-planned\", \"reason\": \"Model is not approved for automatic selection.\"}, {\"model_id\": \"openrouter-general-worker-planned\", \"reason\": \"Model is not approved for automatic selection.\"},",
+                      "summary":  "{\"research_agent\": {\"selected_model_id\": \"gemini-3.1-flash-lite\", \"provider\": \"gemini\", \"reason\": \"Selected Gemini 3.1 Flash-Lite for research_agent. It satisfies the low-cost guard. Matched tags: cheap, research, summary. Required capabilities checked: json, summarization.\", \"confidence\": 0.8333333333333334, \"estimated_risk\": \"low\", \"requires_approval\": false, \"fallback_model_id\": \"gpt-5.4-nano\", \"why_not_others\": [{\"model_id\": \"gpt-5.4-nano\", \"reason\": \"Lower deterministic selector score for this agent/task.\"}, {\"model_id\": \"gemini-3.5-flash\", \"reason\": \"Lower deterministic selector score for this agent/task.\"}, {\"model_id\": \"local-mock-research-summarizer\", \"reason\": \"Lower deterministic",
+                      "source_type":  "model_selection",
+                      "source_path":  "model_selection.json",
+                      "source_run_id":  "30c7da1d-281a-4c5e-aeda-ef5e35a0656b",
+                      "source_artifact_id":  "c5c9a810-40e2-4ed9-9c44-286af689d6da",
+                      "created_at":  "2026-06-19T18:32:53.576877+00:00",
+                      "updated_at":  "2026-06-19T18:32:53.576877+00:00",
+                      "tags":  [
+                                   "greek-yogurt-test",
+                                   "website_update",
+                                   "models",
+                                   "routing"
+                               ],
+                      "importance":  3,
+                      "recency_score":  1.0,
+                      "trust_score":  0.8,
+                      "expires_at":  null,
+                      "is_active":  true,
+                      "is_sensitive":  false,
+                      "should_inject_by_default":  true,
+                      "allowed_agents":  [
+                                             "model_selector_agent",
+                                             "qa_agent",
+                                             "research_agent",
+                                             "website_agent"
+                                         ],
+                      "blocked_agents":  [
+
+                                         ],
+                      "token_estimate":  174,
+                      "sparse_vector":  {
+                                            "model_selection":  0.03686,
+                                            "30c7da1d":  0.03686,
+                                            "research_agent":  0.184302,
+                                            "selected_model_id":  0.073721,
+                                            "gemini-3":  0.147442,
+                                            "1-flash-lite":  0.073721,
+                                            "provider":  0.073721,
+                                            "gemini":  0.147442,
+                                            "reason":  0.479186,
+                                            "selected":  0.073721,
+                                            "flash-lite":  0.073721,
+                                            "satisfies":  0.073721,
+                                            "low-cost":  0.073721,
+                                            "guard":  0.073721,
+                                            "matched":  0.073721,
+                                            "tags":  0.073721,
+                                            "cheap":  0.073721,
+                                            "research":  0.073721,
+                                            "summary":  0.073721,
+                                            "required":  0.073721,
+                                            "capabilities":  0.073721,
+                                            "checked":  0.073721,
+                                            "json":  0.073721,
+                                            "summarization":  0.073721,
+                                            "confidence":  0.073721,
+                                            "8333333333333334":  0.073721,
+                                            "estimated_risk":  0.073721,
+                                            "low":  0.073721,
+                                            "requires_approval":  0.073721,
+                                            "false":  0.073721,
+                                            "fallback_model_id":  0.073721,
+                                            "gpt-5":  0.221163,
+                                            "4-nano":  0.147442,
+                                            "why_not_others":  0.073721,
+                                            "model_id":  0.405465,
+                                            "lower":  0.221163,
+                                            "deterministic":  0.221163,
+                                            "selector":  0.184302,
+                                            "score":  0.184302,
+                                            "agent":  0.221163,
+                                            "task":  0.184302,
+                                            "5-flash":  0.073721,
+                                            "local-mock-research-summarizer":  0.073721,
+                                            "excluded":  0.073721,
+                                            "user":  0.073721,
+                                            "constraint":  0.073721,
+                                            "flex":  0.03686,
+                                            "qwen":  0.03686,
+                                            "qwen3-coder":  0.03686,
+                                            "model":  0.110581,
+                                            "allowed":  0.03686,
+                                            "role":  0.03686,
+                                            "openrouter-coding-fallback-planned":  0.03686,
+                                            "approved":  0.073721,
+                                            "automatic":  0.073721,
+                                            "selection":  0.073721,
+                                            "openrouter-general-worker-planned":  0.03686
+                                        },
+                      "keywords":  [
+                                       "reason",
+                                       "model_id",
+                                       "gpt-5",
+                                       "lower",
+                                       "deterministic",
+                                       "agent",
+                                       "research_agent",
+                                       "selector",
+                                       "score",
+                                       "task",
+                                       "gemini-3",
+                                       "gemini"
+                                   ],
+                      "normalized_text":  "model_selection 30c7da1d research_agent selected_model_id gemini-3 1-flash-lite provider gemini reason selected gemini flash-lite research_agent satisfies low-cost guard matched tags cheap research summary required capabilities checked json summarization confidence 8333333333333334 estimated_risk low requires_approval false fallback_model_id gpt-5 4-nano why_not_others model_id gpt-5 4-nano reason lower deterministic selector score agent task model_id gemini-3 5-flash reason lower deterministic selector score agent task model_id local-mock-research-summarizer reason lower deterministic research_agent selected_model_id gemini-3 1-flash-lite provider gemini reason selected gemini flash-lite research_agent satisfies low-cost guard matched tags cheap research summary required capabilities checked json summarization confidence 8333333333333334 estimated_risk low requires_approval false fallback_model_id gpt-5 4-nano why_not_others model_id gpt-5 4-nano reason lower deterministic selector score agent task model_id gemini-3 5-flash reason lower deterministic selector score agent task model_id local-mock-research-summarizer reason lower deterministic selector score agent task model_id gpt-5 reason excluded user constraint model_id gpt-5 flex reason excluded user constraint model_id qwen qwen3-coder reason model allowed agent role research_agent model_id openrouter-coding-fallback-planned reason model approved automatic selection model_id openrouter-general-worker-planned reason model approved automatic selection",
+                      "hash":  "307a27a419613777",
+                      "constraints":  [
+
+                                      ],
+                      "models_used":  [
+
+                                      ],
+                      "agents_used":  [
+
+                                      ],
+                      "search_provider":  null,
+                      "source_urls":  [
+
+                                      ],
+                      "file_paths":  [
+
+                                     ],
+                      "error_types":  [
+
+                                      ],
+                      "metadata":  {
+
+                                   }
+                  },
+                  {
+                      "id":  "2e4de382-6e01-466b-b578-70436619404f",
+                      "project_id":  "greek-yogurt-test",
+                      "scope":  "project",
+                      "memory_type":  "agent_plan",
+                      "title":  "agent_plan 30c7da1d",
+                      "content":  "{\"run_goal\": \"Use the previous Exa competitor research from memory to improve the Greek yogurt homepage copy. Only update website files. Do not deploy. Do not install packages. Do not use GPT-5.5. Do not run live web search.\", \"selected_workflow\": \"website_update\", \"selected_agents\": [{\"agent_id\": \"research_agent\", \"objective\": \"Research or summarize relevant context without pretending to browse if search is disabled. Command: Use the previous Exa competitor research from memory to improve the Greek yogurt homepage copy. Only update website files. Do not deploy. Do not install packages. Do not use GPT-5.5. Do not run live web search.\", \"required_capabilities\": [\"json\", \"summarization\", \"web_search\"], \"required_model_capabilities\": [\"json\", \"summarization\"], \"required_search_tool_capabilities\": [\"web_search\"], \"allowed_tools\": [\"artifact_write\"], \"allowed_files\": [], \"blocked_actions\": [\"external_api\", \"customer_messaging\", \"deploy\", \"package_install\", \"gpt-5.5\"], \"constraints\": [\"deploy\", \"package_install\", \"gpt-5.5\"], \"needs_model_selection\": true, \"selected_model\": {\"selected_model_id\": \"gemini-3.1-flash-lite\", \"provider\": \"gemini\", \"reason\": \"Selected Gemini 3.1 Flash-Lite for r",
+                      "summary":  "{\"run_goal\": \"Use the previous Exa competitor research from memory to improve the Greek yogurt homepage copy. Only update website files. Do not deploy. Do not install packages. Do not use GPT-5.5. Do not run live web search.\", \"selected_workflow\": \"website_update\", \"selected_agents\": [{\"agent_id\": \"research_agent\", \"objective\": \"Research or summarize relevant context without pretending to browse if search is disabled. Command: Use the previous Exa competitor research from memory to improve the Greek yogurt homepage copy. Only update website files. Do not deploy. Do not install packages. Do not use GPT-5.5. Do not run live web search.\", \"required_capabilities\": [\"json\", \"summarization\", \"web_",
+                      "source_type":  "artifact",
+                      "source_path":  "agent_plan.json",
+                      "source_run_id":  "30c7da1d-281a-4c5e-aeda-ef5e35a0656b",
+                      "source_artifact_id":  "7cc5aaee-e02c-4f0c-b9e0-7f00a6868a08",
+                      "created_at":  "2026-06-19T18:32:53.559876+00:00",
+                      "updated_at":  "2026-06-19T18:32:53.559876+00:00",
+                      "tags":  [
+                                   "greek-yogurt-test",
+                                   "website_update",
+                                   "planner",
+                                   "constraints"
+                               ],
+                      "importance":  4,
+                      "recency_score":  1.0,
+                      "trust_score":  0.8,
+                      "expires_at":  null,
+                      "is_active":  true,
+                      "is_sensitive":  false,
+                      "should_inject_by_default":  true,
+                      "allowed_agents":  [
+                                             "model_selector_agent",
+                                             "qa_agent",
+                                             "research_agent",
+                                             "website_agent"
+                                         ],
+                      "blocked_agents":  [
+
+                                         ],
+                      "token_estimate":  229,
+                      "sparse_vector":  {
+                                            "agent_plan":  0.041523,
+                                            "30c7da1d":  0.041523,
+                                            "run_goal":  0.083045,
+                                            "use":  0.332182,
+                                            "previous":  0.166091,
+                                            "exa":  0.166091,
+                                            "competitor":  0.166091,
+                                            "research":  0.249136,
+                                            "memory":  0.166091,
+                                            "improve":  0.166091,
+                                            "greek":  0.166091,
+                                            "yogurt":  0.166091,
+                                            "homepage":  0.166091,
+                                            "copy":  0.166091,
+                                            "update":  0.166091,
+                                            "website":  0.166091,
+                                            "files":  0.166091,
+                                            "deploy":  0.249136,
+                                            "install":  0.166091,
+                                            "packages":  0.166091,
+                                            "gpt-5":  0.249136,
+                                            "live":  0.166091,
+                                            "web":  0.166091,
+                                            "search":  0.249136,
+                                            "selected_workflow":  0.083045,
+                                            "website_update":  0.083045,
+                                            "selected_agents":  0.083045,
+                                            "agent_id":  0.083045,
+                                            "research_agent":  0.083045,
+                                            "objective":  0.083045,
+                                            "summarize":  0.083045,
+                                            "relevant":  0.083045,
+                                            "context":  0.083045,
+                                            "without":  0.083045,
+                                            "pretending":  0.083045,
+                                            "browse":  0.083045,
+                                            "disabled":  0.083045,
+                                            "command":  0.083045,
+                                            "required_capabilities":  0.083045,
+                                            "json":  0.124568,
+                                            "summarization":  0.124568,
+                                            "web_":  0.041523,
+                                            "web_search":  0.083045,
+                                            "required_model_capabilities":  0.041523,
+                                            "required_search_tool_capabilities":  0.041523,
+                                            "allowed_tools":  0.041523,
+                                            "artifact_write":  0.041523,
+                                            "allowed_files":  0.041523,
+                                            "blocked_actions":  0.041523,
+                                            "external_api":  0.041523,
+                                            "customer_messaging":  0.041523,
+                                            "package_install":  0.083045,
+                                            "constraints":  0.041523,
+                                            "needs_model_selection":  0.041523,
+                                            "true":  0.041523,
+                                            "selected_model":  0.041523,
+                                            "selected_model_id":  0.041523,
+                                            "gemini-3":  0.041523,
+                                            "1-flash-lite":  0.041523,
+                                            "provider":  0.041523,
+                                            "gemini":  0.083045,
+                                            "reason":  0.041523,
+                                            "selected":  0.041523,
+                                            "flash-lite":  0.041523
+                                        },
+                      "keywords":  [
+                                       "use",
+                                       "research",
+                                       "deploy",
+                                       "gpt-5",
+                                       "search",
+                                       "previous",
+                                       "exa",
+                                       "competitor",
+                                       "memory",
+                                       "improve",
+                                       "greek",
+                                       "yogurt"
+                                   ],
+                      "normalized_text":  "agent_plan 30c7da1d run_goal use previous exa competitor research memory improve greek yogurt homepage copy update website files deploy install packages use gpt-5 live web search selected_workflow website_update selected_agents agent_id research_agent objective research summarize relevant context without pretending browse search disabled command use previous exa competitor research memory improve greek yogurt homepage copy update website files deploy install packages use gpt-5 live web search required_capabilities json summarization web_ run_goal use previous exa competitor research memory improve greek yogurt homepage copy update website files deploy install packages use gpt-5 live web search selected_workflow website_update selected_agents agent_id research_agent objective research summarize relevant context without pretending browse search disabled command use previous exa competitor research memory improve greek yogurt homepage copy update website files deploy install packages use gpt-5 live web search required_capabilities json summarization web_search required_model_capabilities json summarization required_search_tool_capabilities web_search allowed_tools artifact_write allowed_files blocked_actions external_api customer_messaging deploy package_install gpt-5 constraints deploy package_install gpt-5 needs_model_selection true selected_model selected_model_id gemini-3 1-flash-lite provider gemini reason selected gemini flash-lite",
+                      "hash":  "b7d4b0644d1f8626",
+                      "constraints":  [
+
+                                      ],
+                      "models_used":  [
+
+                                      ],
+                      "agents_used":  [
+
+                                      ],
+                      "search_provider":  null,
+                      "source_urls":  [
+
+                                      ],
+                      "file_paths":  [
+
+                                     ],
+                      "error_types":  [
+
+                                      ],
+                      "metadata":  {
+
+                                   }
+                  },
+                  {
+                      "id":  "f2dbef6f-e47b-4540-963a-14b0a9cd3d17",
+                      "project_id":  "greek-yogurt-test",
+                      "scope":  "project",
+                      "memory_type":  "run_summary",
+                      "title":  "Run summary 30c7da1d",
+                      "content":  "Website-only workflow updated project greek-yogurt-test.\nSelected workflow: website_update.\nUpdated website files only.\nRan QA after file changes.\nLogged model selection reasons.\nReview files in Project Workspace.\nRun the site locally before any public use.",
+                      "summary":  "Website-only workflow updated project greek-yogurt-test.",
+                      "source_type":  "run",
+                      "source_path":  null,
+                      "source_run_id":  "30c7da1d-281a-4c5e-aeda-ef5e35a0656b",
+                      "source_artifact_id":  null,
+                      "created_at":  "2026-06-19T18:32:53.535878+00:00",
+                      "updated_at":  "2026-06-19T18:32:53.535878+00:00",
+                      "tags":  [
+                                   "greek-yogurt-test",
+                                   "website_update",
+                                   "mock",
+                                   "run_summary"
+                               ],
+                      "importance":  3,
+                      "recency_score":  1.0,
+                      "trust_score":  0.8,
+                      "expires_at":  null,
+                      "is_active":  true,
+                      "is_sensitive":  false,
+                      "should_inject_by_default":  true,
+                      "allowed_agents":  [
+
+                                         ],
+                      "blocked_agents":  [
+
+                                         ],
+                      "token_estimate":  42,
+                      "sparse_vector":  {
+                                            "summary":  0.129099,
+                                            "30c7da1d":  0.129099,
+                                            "website-only":  0.258199,
+                                            "workflow":  0.387298,
+                                            "updated":  0.387298,
+                                            "project":  0.387298,
+                                            "greek-yogurt-test":  0.258199,
+                                            "selected":  0.129099,
+                                            "website_update":  0.129099,
+                                            "website":  0.129099,
+                                            "files":  0.258199,
+                                            "ran":  0.129099,
+                                            "after":  0.129099,
+                                            "file":  0.129099,
+                                            "changes":  0.129099,
+                                            "logged":  0.129099,
+                                            "model":  0.129099,
+                                            "selection":  0.129099,
+                                            "reasons":  0.129099,
+                                            "review":  0.129099,
+                                            "workspace":  0.129099,
+                                            "site":  0.129099,
+                                            "locally":  0.129099,
+                                            "before":  0.129099,
+                                            "any":  0.129099,
+                                            "public":  0.129099,
+                                            "use":  0.129099
+                                        },
+                      "keywords":  [
+                                       "workflow",
+                                       "updated",
+                                       "project",
+                                       "website-only",
+                                       "greek-yogurt-test",
+                                       "files",
+                                       "summary",
+                                       "30c7da1d",
+                                       "selected",
+                                       "website_update",
+                                       "website",
+                                       "ran"
+                                   ],
+                      "normalized_text":  "summary 30c7da1d website-only workflow updated project greek-yogurt-test website-only workflow updated project greek-yogurt-test selected workflow website_update updated website files ran after file changes logged model selection reasons review files project workspace site locally before any public use",
+                      "hash":  "70aca9f1fa6f3668",
+                      "constraints":  [
+
+                                      ],
+                      "models_used":  [
+                                          "gemini-3.1-flash-lite",
+                                          "gpt-5.4-nano",
+                                          "qwen/qwen3-coder"
+                                      ],
+                      "agents_used":  [
+                                          "Research Agent",
+                                          "Website Agent",
+                                          "QA Agent"
+                                      ],
+                      "search_provider":  null,
+                      "source_urls":  [
+
+                                      ],
+                      "file_paths":  [
+
+                                     ],
+                      "error_types":  [
+
+                                      ],
+                      "metadata":  {
+
+                                   }
+                  },
+                  {
+                      "id":  "dabf5adf-bbf0-4273-880c-3bfaf05329ac",
+                      "project_id":  "greek-yogurt-test",
+                      "scope":  "project",
+                      "memory_type":  "next_step",
+                      "title":  "Next step 4c8ea290",
+                      "content":  "Search was skipped/unavailable. Enable web search to collect current sources.\nReview sources and limitations before using claims.",
+                      "summary":  "Search was skipped/unavailable. Enable web search to collect current sources.",
+                      "source_type":  "run",
+                      "source_path":  null,
+                      "source_run_id":  "4c8ea290-2758-45e3-936c-c7e5a7411537",
+                      "source_artifact_id":  null,
+                      "created_at":  "2026-06-19T18:30:27.454617+00:00",
+                      "updated_at":  "2026-06-19T18:30:27.454617+00:00",
+                      "tags":  [
+                                   "greek-yogurt-test",
+                                   "research_only",
+                                   "mock",
+                                   "next_step"
+                               ],
+                      "importance":  3,
+                      "recency_score":  1.0,
+                      "trust_score":  0.8,
+                      "expires_at":  null,
+                      "is_active":  true,
+                      "is_sensitive":  false,
+                      "should_inject_by_default":  true,
+                      "allowed_agents":  [
+
+                                         ],
+                      "blocked_agents":  [
+
+                                         ],
+                      "token_estimate":  30,
+                      "sparse_vector":  {
+                                            "next":  0.132453,
+                                            "step":  0.132453,
+                                            "4c8ea290":  0.132453,
+                                            "search":  0.529813,
+                                            "skipped":  0.264906,
+                                            "unavailable":  0.264906,
+                                            "enable":  0.264906,
+                                            "web":  0.264906,
+                                            "collect":  0.264906,
+                                            "current":  0.264906,
+                                            "sources":  0.39736,
+                                            "review":  0.132453,
+                                            "limitations":  0.132453,
+                                            "before":  0.132453,
+                                            "using":  0.132453,
+                                            "claims":  0.132453
+                                        },
+                      "keywords":  [
+                                       "search",
+                                       "sources",
+                                       "skipped",
+                                       "unavailable",
+                                       "enable",
+                                       "web",
+                                       "collect",
+                                       "current",
+                                       "next",
+                                       "step",
+                                       "4c8ea290",
+                                       "review"
+                                   ],
+                      "normalized_text":  "next step 4c8ea290 search skipped unavailable enable web search collect current sources search skipped unavailable enable web search collect current sources review sources limitations before using claims",
+                      "hash":  "153f1e0c60587f82",
+                      "constraints":  [
+
+                                      ],
+                      "models_used":  [
+
+                                      ],
+                      "agents_used":  [
+
+                                      ],
+                      "search_provider":  null,
+                      "source_urls":  [
+
+                                      ],
+                      "file_paths":  [
+
+                                     ],
+                      "error_types":  [
+
+                                      ],
+                      "metadata":  {
+
+                                   }
+                  },
+                  {
+                      "id":  "dc346d5f-6ab2-4067-b373-371b0114b3e3",
+                      "project_id":  "greek-yogurt-test",
+                      "scope":  "project",
+                      "memory_type":  "safety_constraint",
+                      "title":  "Constraints from 4c8ea290",
+                      "content":  "Do not use GPT-5.5 unless explicitly approved.\nDo not deploy, install packages, take payments, send emails, or post publicly without explicit approval.\nDo not update files for research_only.\nThe current command explicitly blocks GPT-5.5.\nThe current command explicitly blocks file writes.",
+                      "summary":  "Do not use GPT-5.5 unless explicitly approved.; Do not deploy, install packages, take payments, send emails, or post publicly without explicit approval.; Do not update files for research_only.; The current command explicitly blocks GPT-5.5.; The current command explicitly blocks file writes.",
+                      "source_type":  "run",
+                      "source_path":  null,
+                      "source_run_id":  "4c8ea290-2758-45e3-936c-c7e5a7411537",
+                      "source_artifact_id":  null,
+                      "created_at":  "2026-06-19T18:30:27.444618+00:00",
+                      "updated_at":  "2026-06-19T18:30:27.444618+00:00",
+                      "tags":  [
+                                   "greek-yogurt-test",
+                                   "research_only",
+                                   "mock",
+                                   "constraints"
+                               ],
+                      "importance":  5,
+                      "recency_score":  1.0,
+                      "trust_score":  0.8,
+                      "expires_at":  null,
+                      "is_active":  true,
+                      "is_sensitive":  false,
+                      "should_inject_by_default":  true,
+                      "allowed_agents":  [
+
+                                         ],
+                      "blocked_agents":  [
+
+                                         ],
+                      "token_estimate":  85,
+                      "sparse_vector":  {
+                                            "constraints":  0.074125,
+                                            "4c8ea290":  0.074125,
+                                            "use":  0.14825,
+                                            "gpt-5":  0.2965,
+                                            "unless":  0.14825,
+                                            "explicitly":  0.44475,
+                                            "approved":  0.14825,
+                                            "deploy":  0.14825,
+                                            "install":  0.14825,
+                                            "packages":  0.14825,
+                                            "take":  0.14825,
+                                            "payments":  0.14825,
+                                            "send":  0.14825,
+                                            "emails":  0.14825,
+                                            "post":  0.14825,
+                                            "publicly":  0.14825,
+                                            "without":  0.14825,
+                                            "explicit":  0.14825,
+                                            "approval":  0.14825,
+                                            "update":  0.14825,
+                                            "files":  0.14825,
+                                            "research_only":  0.14825,
+                                            "current":  0.2965,
+                                            "command":  0.2965,
+                                            "blocks":  0.2965,
+                                            "file":  0.14825,
+                                            "writes":  0.14825
+                                        },
+                      "keywords":  [
+                                       "explicitly",
+                                       "gpt-5",
+                                       "current",
+                                       "command",
+                                       "blocks",
+                                       "use",
+                                       "unless",
+                                       "approved",
+                                       "deploy",
+                                       "install",
+                                       "packages",
+                                       "take"
+                                   ],
+                      "normalized_text":  "constraints 4c8ea290 use gpt-5 unless explicitly approved deploy install packages take payments send emails post publicly without explicit approval update files research_only current command explicitly blocks gpt-5 current command explicitly blocks file writes use gpt-5 unless explicitly approved deploy install packages take payments send emails post publicly without explicit approval update files research_only current command explicitly blocks gpt-5 current command explicitly blocks file writes",
+                      "hash":  "45d003ec72debe4f",
+                      "constraints":  [
+
+                                      ],
+                      "models_used":  [
+
+                                      ],
+                      "agents_used":  [
+
+                                      ],
+                      "search_provider":  null,
+                      "source_urls":  [
+
+                                      ],
+                      "file_paths":  [
+
+                                     ],
+                      "error_types":  [
+
+                                      ],
+                      "metadata":  {
+
+                                   }
+                  },
+                  {
+                      "id":  "7979bb30-516f-4d62-b1d8-98d1ab7c52e2",
+                      "project_id":  "greek-yogurt-test",
+                      "scope":  "project",
+                      "memory_type":  "qa_warning",
+                      "title":  "QA warnings 4c8ea290",
+                      "content":  "# Prototype QA Review ## Command Research only: use previous Greek yogurt competitor research from memory and summarize the top competitor themes. Do not update files. Do not use GPT-5.5. Do not run live web search. ## File Review - No project files were updated because this was a research-only workflow. - No `.env` files, dependency installs, deployments, emails, or social posts were created. ## Search Review - Search was unavailable/skipped. No current claims should be made. ## Command Validation - Safe command status: passed - Commands reviewed: 0 ## Safety Review - File writes were limited to the approved project workspace. - Validation used the command allowlist. - Prototype server was not started automatically. ## Handoff Summary # Research Brief ## Command Research only: use previous Greek yogurt competitor research from memory and summarize the top competitor themes. Do not update files. Do not use GPT-5.5. Do not run live web search. ## Search Selection - Search needed: True -",
+                      "summary":  "Research only: use previous Greek yogurt competitor research from memory and summarize the top competitor themes. Do not update files. Do not use GPT-5.5. Do not run live web search.; Research only: use previous Greek yogurt competitor research from memory and summarize the top competitor themes. Do not update files. Do not use GPT-5.5. Do not run live web search.; Web search was needed but unavailable or disabled; do not treat this as fresh research.; Approved for local review only. Human approval is still required before public use, deployment, or live customer handling.",
+                      "source_type":  "qa_review",
+                      "source_path":  "qa_review.md",
+                      "source_run_id":  "4c8ea290-2758-45e3-936c-c7e5a7411537",
+                      "source_artifact_id":  "c55dd585-2103-470e-a389-81f661b2fcb1",
+                      "created_at":  "2026-06-19T18:30:27.435117+00:00",
+                      "updated_at":  "2026-06-19T18:30:27.435117+00:00",
+                      "tags":  [
+                                   "greek-yogurt-test",
+                                   "research_only",
+                                   "mock",
+                                   "qa",
+                                   "warnings"
+                               ],
+                      "importance":  4,
+                      "recency_score":  1.0,
+                      "trust_score":  0.8,
+                      "expires_at":  null,
+                      "is_active":  true,
+                      "is_sensitive":  false,
+                      "should_inject_by_default":  true,
+                      "allowed_agents":  [
+                                             "qa_agent",
+                                             "website_agent",
+                                             "research_agent"
+                                         ],
+                      "blocked_agents":  [
+
+                                         ],
+                      "token_estimate":  257,
+                      "sparse_vector":  {
+                                            "warnings":  0.038208,
+                                            "4c8ea290":  0.038208,
+                                            "research":  0.38208,
+                                            "use":  0.343872,
+                                            "previous":  0.152832,
+                                            "greek":  0.152832,
+                                            "yogurt":  0.152832,
+                                            "competitor":  0.305664,
+                                            "memory":  0.152832,
+                                            "summarize":  0.152832,
+                                            "top":  0.152832,
+                                            "themes":  0.152832,
+                                            "update":  0.152832,
+                                            "files":  0.229248,
+                                            "gpt-5":  0.152832,
+                                            "live":  0.19104,
+                                            "web":  0.19104,
+                                            "search":  0.343872,
+                                            "needed":  0.076416,
+                                            "unavailable":  0.076416,
+                                            "disabled":  0.038208,
+                                            "treat":  0.038208,
+                                            "fresh":  0.038208,
+                                            "approved":  0.076416,
+                                            "local":  0.038208,
+                                            "review":  0.19104,
+                                            "human":  0.038208,
+                                            "approval":  0.038208,
+                                            "still":  0.038208,
+                                            "required":  0.038208,
+                                            "before":  0.038208,
+                                            "public":  0.038208,
+                                            "deployment":  0.038208,
+                                            "customer":  0.038208,
+                                            "handling":  0.038208,
+                                            "prototype":  0.076416,
+                                            "command":  0.19104,
+                                            "file":  0.076416,
+                                            "project":  0.076416,
+                                            "updated":  0.038208,
+                                            "because":  0.038208,
+                                            "research-only":  0.038208,
+                                            "workflow":  0.038208,
+                                            "env":  0.038208,
+                                            "dependency":  0.038208,
+                                            "installs":  0.038208,
+                                            "deployments":  0.038208,
+                                            "emails":  0.038208,
+                                            "social":  0.038208,
+                                            "posts":  0.038208,
+                                            "created":  0.038208,
+                                            "skipped":  0.038208,
+                                            "current":  0.038208,
+                                            "claims":  0.038208,
+                                            "should":  0.038208,
+                                            "made":  0.038208,
+                                            "validation":  0.076416,
+                                            "safe":  0.038208,
+                                            "status":  0.038208,
+                                            "passed":  0.038208,
+                                            "commands":  0.038208,
+                                            "reviewed":  0.038208,
+                                            "safety":  0.038208,
+                                            "writes":  0.038208,
+                                            "limited":  0.038208,
+                                            "workspace":  0.038208,
+                                            "used":  0.038208,
+                                            "allowlist":  0.038208,
+                                            "server":  0.038208,
+                                            "started":  0.038208,
+                                            "automatically":  0.038208,
+                                            "handoff":  0.038208,
+                                            "summary":  0.038208,
+                                            "brief":  0.038208,
+                                            "selection":  0.038208,
+                                            "true":  0.038208
+                                        },
+                      "keywords":  [
+                                       "research",
+                                       "use",
+                                       "search",
+                                       "competitor",
+                                       "files",
+                                       "live",
+                                       "web",
+                                       "review",
+                                       "command",
+                                       "previous",
+                                       "greek",
+                                       "yogurt"
+                                   ],
+                      "normalized_text":  "warnings 4c8ea290 research use previous greek yogurt competitor research memory summarize top competitor themes update files use gpt-5 live web search research use previous greek yogurt competitor research memory summarize top competitor themes update files use gpt-5 live web search web search needed unavailable disabled treat fresh research approved local review human approval still required before public use deployment live customer handling prototype review command research use previous greek yogurt competitor research memory summarize top competitor themes update files use gpt-5 live web search file review project files updated because research-only workflow env files dependency installs deployments emails social posts created search review search unavailable skipped current claims should made command validation safe command status passed commands reviewed safety review file writes limited approved project workspace validation used command allowlist prototype server started automatically handoff summary research brief command research use previous greek yogurt competitor research memory summarize top competitor themes update files use gpt-5 live web search search selection search needed true",
+                      "hash":  "0821a2f14fd95043",
+                      "constraints":  [
+
+                                      ],
+                      "models_used":  [
+
+                                      ],
+                      "agents_used":  [
+
+                                      ],
+                      "search_provider":  null,
+                      "source_urls":  [
+
+                                      ],
+                      "file_paths":  [
+
+                                     ],
+                      "error_types":  [
+
+                                      ],
+                      "metadata":  {
+
+                                   }
+                  },
+                  {
+                      "id":  "7a6f7fc4-9cba-42a3-933a-9dd6584dae1d",
+                      "project_id":  "greek-yogurt-test",
+                      "scope":  "project",
+                      "memory_type":  "research_source_summary",
+                      "title":  "Research sources 4c8ea290",
+                      "content":  "{\"search_used\": false, \"search_unavailable\": true, \"provider_id\": null, \"mock_fixture\": false, \"cache_hit\": false, \"reason\": \"Web search was disabled or no search provider was selected.\", \"error_type\": \"search_unavailable\", \"error_message\": \"Web search was disabled or no search provider was selected.\", \"source_count\": 0, \"cost\": {}, \"sources\": []}",
+                      "summary":  "unknown search source summary: 0 source(s), status skipped.",
+                      "source_type":  "search_source",
+                      "source_path":  "research_sources.json",
+                      "source_run_id":  "4c8ea290-2758-45e3-936c-c7e5a7411537",
+                      "source_artifact_id":  "fd38a0a6-c1ab-4873-a2e9-beb4284e73a3",
+                      "created_at":  "2026-06-19T18:30:27.419617+00:00",
+                      "updated_at":  "2026-06-19T18:30:27.419617+00:00",
+                      "tags":  [
+                                   "greek-yogurt-test",
+                                   "research_only",
+                                   "mock",
+                                   "sources",
+                                   ""
+                               ],
+                      "importance":  4,
+                      "recency_score":  1.0,
+                      "trust_score":  0.8,
+                      "expires_at":  null,
+                      "is_active":  true,
+                      "is_sensitive":  false,
+                      "should_inject_by_default":  true,
+                      "allowed_agents":  [
+                                             "research_agent",
+                                             "website_agent",
+                                             "qa_agent"
+                                         ],
+                      "blocked_agents":  [
+
+                                         ],
+                      "token_estimate":  51,
+                      "sparse_vector":  {
+                                            "research":  0.112509,
+                                            "sources":  0.225018,
+                                            "4c8ea290":  0.112509,
+                                            "unknown":  0.112509,
+                                            "search":  0.562544,
+                                            "source":  0.225018,
+                                            "summary":  0.112509,
+                                            "status":  0.112509,
+                                            "skipped":  0.112509,
+                                            "search_used":  0.112509,
+                                            "false":  0.337526,
+                                            "search_unavailable":  0.225018,
+                                            "true":  0.112509,
+                                            "provider_id":  0.112509,
+                                            "null":  0.112509,
+                                            "mock_fixture":  0.112509,
+                                            "cache_hit":  0.112509,
+                                            "reason":  0.112509,
+                                            "web":  0.225018,
+                                            "disabled":  0.225018,
+                                            "provider":  0.225018,
+                                            "selected":  0.225018,
+                                            "error_type":  0.112509,
+                                            "error_message":  0.112509,
+                                            "source_count":  0.112509,
+                                            "cost":  0.112509
+                                        },
+                      "keywords":  [
+                                       "search",
+                                       "false",
+                                       "sources",
+                                       "source",
+                                       "search_unavailable",
+                                       "web",
+                                       "disabled",
+                                       "provider",
+                                       "selected",
+                                       "research",
+                                       "4c8ea290",
+                                       "unknown"
+                                   ],
+                      "normalized_text":  "research sources 4c8ea290 unknown search source summary source status skipped search_used false search_unavailable true provider_id null mock_fixture false cache_hit false reason web search disabled search provider selected error_type search_unavailable error_message web search disabled search provider selected source_count cost sources",
+                      "hash":  "44ba5f451347fff4",
+                      "constraints":  [
+
+                                      ],
+                      "models_used":  [
+
+                                      ],
+                      "agents_used":  [
+
+                                      ],
+                      "search_provider":  null,
+                      "source_urls":  [
+
+                                      ],
+                      "file_paths":  [
+
+                                     ],
+                      "error_types":  [
+
+                                      ],
+                      "metadata":  {
+                                       "mock_fixture":  false,
+                                       "source_count":  0
+                                   }
+                  },
+                  {
+                      "id":  "a8d62d14-7022-45fb-805c-3ba42e03eed2",
+                      "project_id":  "greek-yogurt-test",
+                      "scope":  "project",
+                      "memory_type":  "research_brief",
+                      "title":  "Research brief 4c8ea290",
+                      "content":  "# Research Brief ## Command Research only: use previous Greek yogurt competitor research from memory and summarize the top competitor themes. Do not update files. Do not use GPT-5.5. Do not run live web search. ## Search Selection - Search needed: True - Search unavailable: True - Selected provider: none ## Findings - This run prepared a research-only handoff and did not run Website Agent. - Use the source list and limitations below before making product, pricing, competitor, or market claims. - Current/fresh claims require live provider search approval and configured provider keys. - Search brief: Web search was disabled or no search provider was selected. ## Sources - No live sources collected. ## Limitations - Web search was needed but unavailable or disabled; do not treat this as fresh research.",
+                      "summary":  "# Research Brief ## Command Research only: use previous Greek yogurt competitor research from memory and summarize the top competitor themes. Do not update files. Do not use GPT-5.5. Do not run live web search. ## Search Selection - Search needed: True - Search unavailable: True - Selected provider: none ## Findings - This run prepared a research-only handoff and did not run Website Agent. - Use the source list and limitations below before making product, pricing, competitor, or market claims. - Current/fresh claims require live provider search approval and configured provider keys. - Search brief: Web search was disabled or no search provider was selected. ## Sources - No live sources colle",
+                      "source_type":  "artifact",
+                      "source_path":  "research_brief.md",
+                      "source_run_id":  "4c8ea290-2758-45e3-936c-c7e5a7411537",
+                      "source_artifact_id":  "509833e9-11a3-41b0-9301-c5ac2128d440",
+                      "created_at":  "2026-06-19T18:30:27.404618+00:00",
+                      "updated_at":  "2026-06-19T18:30:27.404618+00:00",
+                      "tags":  [
+                                   "greek-yogurt-test",
+                                   "research_only",
+                                   "mock",
+                                   "research"
+                               ],
+                      "importance":  4,
+                      "recency_score":  1.0,
+                      "trust_score":  0.8,
+                      "expires_at":  null,
+                      "is_active":  true,
+                      "is_sensitive":  false,
+                      "should_inject_by_default":  true,
+                      "allowed_agents":  [
+                                             "research_agent",
+                                             "website_agent",
+                                             "qa_agent"
+                                         ],
+                      "blocked_agents":  [
+
+                                         ],
+                      "token_estimate":  247,
+                      "sparse_vector":  {
+                                            "research":  0.279372,
+                                            "brief":  0.174608,
+                                            "4c8ea290":  0.034922,
+                                            "command":  0.069843,
+                                            "use":  0.209529,
+                                            "previous":  0.069843,
+                                            "greek":  0.069843,
+                                            "yogurt":  0.069843,
+                                            "competitor":  0.209529,
+                                            "memory":  0.069843,
+                                            "summarize":  0.069843,
+                                            "top":  0.069843,
+                                            "themes":  0.069843,
+                                            "update":  0.069843,
+                                            "files":  0.069843,
+                                            "gpt-5":  0.069843,
+                                            "live":  0.209529,
+                                            "web":  0.174608,
+                                            "search":  0.593666,
+                                            "selection":  0.069843,
+                                            "needed":  0.104765,
+                                            "true":  0.139686,
+                                            "unavailable":  0.104765,
+                                            "selected":  0.139686,
+                                            "provider":  0.279372,
+                                            "none":  0.069843,
+                                            "findings":  0.069843,
+                                            "prepared":  0.069843,
+                                            "research-only":  0.069843,
+                                            "handoff":  0.069843,
+                                            "did":  0.069843,
+                                            "website":  0.069843,
+                                            "agent":  0.069843,
+                                            "source":  0.069843,
+                                            "list":  0.069843,
+                                            "limitations":  0.104765,
+                                            "below":  0.069843,
+                                            "before":  0.069843,
+                                            "making":  0.069843,
+                                            "product":  0.069843,
+                                            "pricing":  0.069843,
+                                            "market":  0.069843,
+                                            "claims":  0.139686,
+                                            "current":  0.069843,
+                                            "fresh":  0.104765,
+                                            "require":  0.069843,
+                                            "approval":  0.069843,
+                                            "configured":  0.069843,
+                                            "keys":  0.069843,
+                                            "disabled":  0.104765,
+                                            "sources":  0.139686,
+                                            "colle":  0.034922,
+                                            "collected":  0.034922,
+                                            "treat":  0.034922
+                                        },
+                      "keywords":  [
+                                       "search",
+                                       "research",
+                                       "provider",
+                                       "use",
+                                       "competitor",
+                                       "live",
+                                       "brief",
+                                       "web",
+                                       "true",
+                                       "selected",
+                                       "claims",
+                                       "sources"
+                                   ],
+                      "normalized_text":  "research brief 4c8ea290 research brief command research use previous greek yogurt competitor research memory summarize top competitor themes update files use gpt-5 live web search search selection search needed true search unavailable true selected provider none findings prepared research-only handoff did website agent use source list limitations below before making product pricing competitor market claims current fresh claims require live provider search approval configured provider keys search brief web search disabled search provider selected sources live sources colle research brief command research use previous greek yogurt competitor research memory summarize top competitor themes update files use gpt-5 live web search search selection search needed true search unavailable true selected provider none findings prepared research-only handoff did website agent use source list limitations below before making product pricing competitor market claims current fresh claims require live provider search approval configured provider keys search brief web search disabled search provider selected sources live sources collected limitations web search needed unavailable disabled treat fresh research",
+                      "hash":  "5e5d6493e99a553d",
+                      "constraints":  [
+
+                                      ],
+                      "models_used":  [
+
+                                      ],
+                      "agents_used":  [
+
+                                      ],
+                      "search_provider":  null,
+                      "source_urls":  [
+
+                                      ],
+                      "file_paths":  [
+
+                                     ],
+                      "error_types":  [
+
+                                      ],
+                      "metadata":  {
+
+                                   }
+                  },
+                  {
+                      "id":  "ea178ab2-84be-471e-b9d9-585f8051dd3c",
+                      "project_id":  "greek-yogurt-test",
+                      "scope":  "project",
+                      "memory_type":  "model_selection",
+                      "title":  "model_selection 4c8ea290",
+                      "content":  "{\"research_agent\": {\"selected_model_id\": \"gemini-3.1-flash-lite\", \"provider\": \"gemini\", \"reason\": \"Selected Gemini 3.1 Flash-Lite for research_agent. It satisfies the low-cost guard. Matched tags: cheap, research, summary. Required capabilities checked: json, summarization.\", \"confidence\": 0.8333333333333334, \"estimated_risk\": \"low\", \"requires_approval\": false, \"fallback_model_id\": \"gpt-5.4-nano\", \"why_not_others\": [{\"model_id\": \"gpt-5.4-nano\", \"reason\": \"Lower deterministic selector score for this agent/task.\"}, {\"model_id\": \"gemini-3.5-flash\", \"reason\": \"Lower deterministic selector score for this agent/task.\"}, {\"model_id\": \"local-mock-research-summarizer\", \"reason\": \"Lower deterministic selector score for this agent/task.\"}, {\"model_id\": \"gpt-5.5\", \"reason\": \"Excluded by user constraint.\"}, {\"model_id\": \"gpt-5.5:flex\", \"reason\": \"Excluded by user constraint.\"}, {\"model_id\": \"qwen/qwen3-coder\", \"reason\": \"Model is not allowed for agent role research_agent.\"}, {\"model_id\": \"openrouter-coding-fallback-planned\", \"reason\": \"Model is not approved for automatic selection.\"}, {\"model_id\": \"openrouter-general-worker-planned\", \"reason\": \"Model is not approved for automatic selection.\"},",
+                      "summary":  "{\"research_agent\": {\"selected_model_id\": \"gemini-3.1-flash-lite\", \"provider\": \"gemini\", \"reason\": \"Selected Gemini 3.1 Flash-Lite for research_agent. It satisfies the low-cost guard. Matched tags: cheap, research, summary. Required capabilities checked: json, summarization.\", \"confidence\": 0.8333333333333334, \"estimated_risk\": \"low\", \"requires_approval\": false, \"fallback_model_id\": \"gpt-5.4-nano\", \"why_not_others\": [{\"model_id\": \"gpt-5.4-nano\", \"reason\": \"Lower deterministic selector score for this agent/task.\"}, {\"model_id\": \"gemini-3.5-flash\", \"reason\": \"Lower deterministic selector score for this agent/task.\"}, {\"model_id\": \"local-mock-research-summarizer\", \"reason\": \"Lower deterministic",
+                      "source_type":  "model_selection",
+                      "source_path":  "model_selection.json",
+                      "source_run_id":  "4c8ea290-2758-45e3-936c-c7e5a7411537",
+                      "source_artifact_id":  "1ccebc05-4a3e-40c7-b449-13e4c2ee4f97",
+                      "created_at":  "2026-06-19T18:30:27.389618+00:00",
+                      "updated_at":  "2026-06-19T18:30:27.389618+00:00",
+                      "tags":  [
+                                   "greek-yogurt-test",
+                                   "research_only",
+                                   "models",
+                                   "routing"
+                               ],
+                      "importance":  3,
+                      "recency_score":  1.0,
+                      "trust_score":  0.8,
+                      "expires_at":  null,
+                      "is_active":  true,
+                      "is_sensitive":  false,
+                      "should_inject_by_default":  true,
+                      "allowed_agents":  [
+                                             "model_selector_agent",
+                                             "qa_agent",
+                                             "research_agent",
+                                             "website_agent"
+                                         ],
+                      "blocked_agents":  [
+
+                                         ],
+                      "token_estimate":  174,
+                      "sparse_vector":  {
+                                            "model_selection":  0.03686,
+                                            "4c8ea290":  0.03686,
+                                            "research_agent":  0.184302,
+                                            "selected_model_id":  0.073721,
+                                            "gemini-3":  0.147442,
+                                            "1-flash-lite":  0.073721,
+                                            "provider":  0.073721,
+                                            "gemini":  0.147442,
+                                            "reason":  0.479186,
+                                            "selected":  0.073721,
+                                            "flash-lite":  0.073721,
+                                            "satisfies":  0.073721,
+                                            "low-cost":  0.073721,
+                                            "guard":  0.073721,
+                                            "matched":  0.073721,
+                                            "tags":  0.073721,
+                                            "cheap":  0.073721,
+                                            "research":  0.073721,
+                                            "summary":  0.073721,
+                                            "required":  0.073721,
+                                            "capabilities":  0.073721,
+                                            "checked":  0.073721,
+                                            "json":  0.073721,
+                                            "summarization":  0.073721,
+                                            "confidence":  0.073721,
+                                            "8333333333333334":  0.073721,
+                                            "estimated_risk":  0.073721,
+                                            "low":  0.073721,
+                                            "requires_approval":  0.073721,
+                                            "false":  0.073721,
+                                            "fallback_model_id":  0.073721,
+                                            "gpt-5":  0.221163,
+                                            "4-nano":  0.147442,
+                                            "why_not_others":  0.073721,
+                                            "model_id":  0.405465,
+                                            "lower":  0.221163,
+                                            "deterministic":  0.221163,
+                                            "selector":  0.184302,
+                                            "score":  0.184302,
+                                            "agent":  0.221163,
+                                            "task":  0.184302,
+                                            "5-flash":  0.073721,
+                                            "local-mock-research-summarizer":  0.073721,
+                                            "excluded":  0.073721,
+                                            "user":  0.073721,
+                                            "constraint":  0.073721,
+                                            "flex":  0.03686,
+                                            "qwen":  0.03686,
+                                            "qwen3-coder":  0.03686,
+                                            "model":  0.110581,
+                                            "allowed":  0.03686,
+                                            "role":  0.03686,
+                                            "openrouter-coding-fallback-planned":  0.03686,
+                                            "approved":  0.073721,
+                                            "automatic":  0.073721,
+                                            "selection":  0.073721,
+                                            "openrouter-general-worker-planned":  0.03686
+                                        },
+                      "keywords":  [
+                                       "reason",
+                                       "model_id",
+                                       "gpt-5",
+                                       "lower",
+                                       "deterministic",
+                                       "agent",
+                                       "research_agent",
+                                       "selector",
+                                       "score",
+                                       "task",
+                                       "gemini-3",
+                                       "gemini"
+                                   ],
+                      "normalized_text":  "model_selection 4c8ea290 research_agent selected_model_id gemini-3 1-flash-lite provider gemini reason selected gemini flash-lite research_agent satisfies low-cost guard matched tags cheap research summary required capabilities checked json summarization confidence 8333333333333334 estimated_risk low requires_approval false fallback_model_id gpt-5 4-nano why_not_others model_id gpt-5 4-nano reason lower deterministic selector score agent task model_id gemini-3 5-flash reason lower deterministic selector score agent task model_id local-mock-research-summarizer reason lower deterministic research_agent selected_model_id gemini-3 1-flash-lite provider gemini reason selected gemini flash-lite research_agent satisfies low-cost guard matched tags cheap research summary required capabilities checked json summarization confidence 8333333333333334 estimated_risk low requires_approval false fallback_model_id gpt-5 4-nano why_not_others model_id gpt-5 4-nano reason lower deterministic selector score agent task model_id gemini-3 5-flash reason lower deterministic selector score agent task model_id local-mock-research-summarizer reason lower deterministic selector score agent task model_id gpt-5 reason excluded user constraint model_id gpt-5 flex reason excluded user constraint model_id qwen qwen3-coder reason model allowed agent role research_agent model_id openrouter-coding-fallback-planned reason model approved automatic selection model_id openrouter-general-worker-planned reason model approved automatic selection",
+                      "hash":  "718fc0f2fa0b7046",
+                      "constraints":  [
+
+                                      ],
+                      "models_used":  [
+
+                                      ],
+                      "agents_used":  [
+
+                                      ],
+                      "search_provider":  null,
+                      "source_urls":  [
+
+                                      ],
+                      "file_paths":  [
+
+                                     ],
+                      "error_types":  [
+
+                                      ],
+                      "metadata":  {
+
+                                   }
+                  },
+                  {
+                      "id":  "47b06f4b-16ad-4791-8b14-fd2c78cb5630",
+                      "project_id":  "greek-yogurt-test",
+                      "scope":  "project",
+                      "memory_type":  "agent_plan",
+                      "title":  "agent_plan 4c8ea290",
+                      "content":  "{\"run_goal\": \"Research only: use previous Greek yogurt competitor research from memory and summarize the top competitor themes. Do not update files. Do not use GPT-5.5. Do not run live web search.\", \"selected_workflow\": \"research_only\", \"selected_agents\": [{\"agent_id\": \"research_agent\", \"objective\": \"Research or summarize relevant context without pretending to browse if search is disabled. Command: Research only: use previous Greek yogurt competitor research from memory and summarize the top competitor themes. Do not update files. Do not use GPT-5.5. Do not run live web search.\", \"required_capabilities\": [\"json\", \"summarization\", \"web_search\"], \"required_model_capabilities\": [\"json\", \"summarization\"], \"required_search_tool_capabilities\": [\"web_search\"], \"allowed_tools\": [\"artifact_write\"], \"allowed_files\": [], \"blocked_actions\": [\"external_api\", \"customer_messaging\", \"gpt-5.5\"], \"constraints\": [\"gpt-5.5\"], \"needs_model_selection\": true, \"selected_model\": {\"selected_model_id\": \"gemini-3.1-flash-lite\", \"provider\": \"gemini\", \"reason\": \"Selected Gemini 3.1 Flash-Lite for research_agent. It satisfies the low-cost guard. Matched tags: cheap, research, summary. Required capabilities check",
+                      "summary":  "{\"run_goal\": \"Research only: use previous Greek yogurt competitor research from memory and summarize the top competitor themes. Do not update files. Do not use GPT-5.5. Do not run live web search.\", \"selected_workflow\": \"research_only\", \"selected_agents\": [{\"agent_id\": \"research_agent\", \"objective\": \"Research or summarize relevant context without pretending to browse if search is disabled. Command: Research only: use previous Greek yogurt competitor research from memory and summarize the top competitor themes. Do not update files. Do not use GPT-5.5. Do not run live web search.\", \"required_capabilities\": [\"json\", \"summarization\", \"web_search\"], \"required_model_capabilities\": [\"json\", \"summar",
+                      "source_type":  "artifact",
+                      "source_path":  "agent_plan.json",
+                      "source_run_id":  "4c8ea290-2758-45e3-936c-c7e5a7411537",
+                      "source_artifact_id":  "dc240989-4cfc-4ee1-8f65-c64b78648383",
+                      "created_at":  "2026-06-19T18:30:27.373117+00:00",
+                      "updated_at":  "2026-06-19T18:30:27.373117+00:00",
+                      "tags":  [
+                                   "greek-yogurt-test",
+                                   "research_only",
+                                   "planner",
+                                   "constraints"
+                               ],
+                      "importance":  4,
+                      "recency_score":  1.0,
+                      "trust_score":  0.8,
+                      "expires_at":  null,
+                      "is_active":  true,
+                      "is_sensitive":  false,
+                      "should_inject_by_default":  true,
+                      "allowed_agents":  [
+                                             "model_selector_agent",
+                                             "qa_agent",
+                                             "research_agent",
+                                             "website_agent"
+                                         ],
+                      "blocked_agents":  [
+
+                                         ],
+                      "token_estimate":  217,
+                      "sparse_vector":  {
+                                            "agent_plan":  0.039073,
+                                            "4c8ea290":  0.039073,
+                                            "run_goal":  0.078146,
+                                            "research":  0.429806,
+                                            "use":  0.312586,
+                                            "previous":  0.156293,
+                                            "greek":  0.156293,
+                                            "yogurt":  0.156293,
+                                            "competitor":  0.312586,
+                                            "memory":  0.156293,
+                                            "summarize":  0.234439,
+                                            "top":  0.156293,
+                                            "themes":  0.156293,
+                                            "update":  0.156293,
+                                            "files":  0.156293,
+                                            "gpt-5":  0.234439,
+                                            "live":  0.156293,
+                                            "web":  0.156293,
+                                            "search":  0.234439,
+                                            "selected_workflow":  0.078146,
+                                            "research_only":  0.078146,
+                                            "selected_agents":  0.078146,
+                                            "agent_id":  0.078146,
+                                            "research_agent":  0.11722,
+                                            "objective":  0.078146,
+                                            "relevant":  0.078146,
+                                            "context":  0.078146,
+                                            "without":  0.078146,
+                                            "pretending":  0.078146,
+                                            "browse":  0.078146,
+                                            "disabled":  0.078146,
+                                            "command":  0.078146,
+                                            "required_capabilities":  0.078146,
+                                            "json":  0.156293,
+                                            "summarization":  0.11722,
+                                            "web_search":  0.11722,
+                                            "required_model_capabilities":  0.078146,
+                                            "summar":  0.039073,
+                                            "required_search_tool_capabilities":  0.039073,
+                                            "allowed_tools":  0.039073,
+                                            "artifact_write":  0.039073,
+                                            "allowed_files":  0.039073,
+                                            "blocked_actions":  0.039073,
+                                            "external_api":  0.039073,
+                                            "customer_messaging":  0.039073,
+                                            "constraints":  0.039073,
+                                            "needs_model_selection":  0.039073,
+                                            "true":  0.039073,
+                                            "selected_model":  0.039073,
+                                            "selected_model_id":  0.039073,
+                                            "gemini-3":  0.039073,
+                                            "1-flash-lite":  0.039073,
+                                            "provider":  0.039073,
+                                            "gemini":  0.078146,
+                                            "reason":  0.039073,
+                                            "selected":  0.039073,
+                                            "flash-lite":  0.039073,
+                                            "satisfies":  0.039073,
+                                            "low-cost":  0.039073,
+                                            "guard":  0.039073,
+                                            "matched":  0.039073,
+                                            "tags":  0.039073,
+                                            "cheap":  0.039073,
+                                            "summary":  0.039073,
+                                            "required":  0.039073,
+                                            "capabilities":  0.039073,
+                                            "check":  0.039073
+                                        },
+                      "keywords":  [
+                                       "research",
+                                       "use",
+                                       "competitor",
+                                       "summarize",
+                                       "gpt-5",
+                                       "search",
+                                       "previous",
+                                       "greek",
+                                       "yogurt",
+                                       "memory",
+                                       "top",
+                                       "themes"
+                                   ],
+                      "normalized_text":  "agent_plan 4c8ea290 run_goal research use previous greek yogurt competitor research memory summarize top competitor themes update files use gpt-5 live web search selected_workflow research_only selected_agents agent_id research_agent objective research summarize relevant context without pretending browse search disabled command research use previous greek yogurt competitor research memory summarize top competitor themes update files use gpt-5 live web search required_capabilities json summarization web_search required_model_capabilities json summar run_goal research use previous greek yogurt competitor research memory summarize top competitor themes update files use gpt-5 live web search selected_workflow research_only selected_agents agent_id research_agent objective research summarize relevant context without pretending browse search disabled command research use previous greek yogurt competitor research memory summarize top competitor themes update files use gpt-5 live web search required_capabilities json summarization web_search required_model_capabilities json summarization required_search_tool_capabilities web_search allowed_tools artifact_write allowed_files blocked_actions external_api customer_messaging gpt-5 constraints gpt-5 needs_model_selection true selected_model selected_model_id gemini-3 1-flash-lite provider gemini reason selected gemini flash-lite research_agent satisfies low-cost guard matched tags cheap research summary required capabilities check",
+                      "hash":  "00d8da16d679aa36",
+                      "constraints":  [
+
+                                      ],
+                      "models_used":  [
+
+                                      ],
+                      "agents_used":  [
+
+                                      ],
+                      "search_provider":  null,
+                      "source_urls":  [
+
+                                      ],
+                      "file_paths":  [
+
+                                     ],
+                      "error_types":  [
+
+                                      ],
+                      "metadata":  {
+
+                                   }
+                  },
+                  {
+                      "id":  "5668337a-d095-40ef-bbc7-23f683545f2b",
+                      "project_id":  "greek-yogurt-test",
+                      "scope":  "project",
+                      "memory_type":  "run_summary",
+                      "title":  "Run summary 4c8ea290",
+                      "content":  "Research-only workflow completed without Website Agent or file writes.\nSelected research-only workflow.\nProduced a research brief.\nStored source metadata or limitations.\nSkipped Website Agent and file writes.\nSearch was skipped/unavailable. Enable web search to collect current sources.\nReview sources and limitations before using claims.",
+                      "summary":  "Research-only workflow completed without Website Agent or file writes.",
+                      "source_type":  "run",
+                      "source_path":  null,
+                      "source_run_id":  "4c8ea290-2758-45e3-936c-c7e5a7411537",
+                      "source_artifact_id":  null,
+                      "created_at":  "2026-06-19T18:30:27.351617+00:00",
+                      "updated_at":  "2026-06-19T18:30:27.351617+00:00",
+                      "tags":  [
+                                   "greek-yogurt-test",
+                                   "research_only",
+                                   "mock",
+                                   "run_summary"
+                               ],
+                      "importance":  3,
+                      "recency_score":  1.0,
+                      "trust_score":  0.8,
+                      "expires_at":  null,
+                      "is_active":  true,
+                      "is_sensitive":  false,
+                      "should_inject_by_default":  true,
+                      "allowed_agents":  [
+
+                                         ],
+                      "blocked_agents":  [
+
+                                         ],
+                      "token_estimate":  56,
+                      "sparse_vector":  {
+                                            "summary":  0.102062,
+                                            "4c8ea290":  0.102062,
+                                            "research-only":  0.306186,
+                                            "workflow":  0.306186,
+                                            "completed":  0.204124,
+                                            "without":  0.204124,
+                                            "website":  0.306186,
+                                            "agent":  0.306186,
+                                            "file":  0.306186,
+                                            "writes":  0.306186,
+                                            "selected":  0.102062,
+                                            "produced":  0.102062,
+                                            "research":  0.102062,
+                                            "brief":  0.102062,
+                                            "stored":  0.102062,
+                                            "source":  0.102062,
+                                            "metadata":  0.102062,
+                                            "limitations":  0.204124,
+                                            "skipped":  0.204124,
+                                            "search":  0.204124,
+                                            "unavailable":  0.102062,
+                                            "enable":  0.102062,
+                                            "web":  0.102062,
+                                            "collect":  0.102062,
+                                            "current":  0.102062,
+                                            "sources":  0.204124,
+                                            "review":  0.102062,
+                                            "before":  0.102062,
+                                            "using":  0.102062,
+                                            "claims":  0.102062
+                                        },
+                      "keywords":  [
+                                       "research-only",
+                                       "workflow",
+                                       "website",
+                                       "agent",
+                                       "file",
+                                       "writes",
+                                       "completed",
+                                       "without",
+                                       "limitations",
+                                       "skipped",
+                                       "search",
+                                       "sources"
+                                   ],
+                      "normalized_text":  "summary 4c8ea290 research-only workflow completed without website agent file writes research-only workflow completed without website agent file writes selected research-only workflow produced research brief stored source metadata limitations skipped website agent file writes search skipped unavailable enable web search collect current sources review sources limitations before using claims",
+                      "hash":  "130f8d9e977b43ec",
+                      "constraints":  [
+
+                                      ],
+                      "models_used":  [
+                                          "gemini-3.1-flash-lite",
+                                          "gpt-5.4-nano"
+                                      ],
+                      "agents_used":  [
+                                          "Research Agent",
+                                          "QA Agent"
+                                      ],
+                      "search_provider":  null,
+                      "source_urls":  [
+
+                                      ],
+                      "file_paths":  [
+
+                                     ],
+                      "error_types":  [
+
+                                      ],
+                      "metadata":  {
+
+                                   }
+                  },
+                  {
+                      "id":  "322467c8-a2df-4be7-8bc2-93adc851bd4a",
+                      "project_id":  "greek-yogurt-test",
+                      "scope":  "project",
+                      "memory_type":  "next_step",
+                      "title":  "Next step 309ce14b",
+                      "content":  "Review sources and limitations before using claims.\nEnable live web search only when you want paid/current provider data.",
+                      "summary":  "Review sources and limitations before using claims.",
+                      "source_type":  "run",
+                      "source_path":  null,
+                      "source_run_id":  "309ce14b-42c0-454f-a530-d23edd45e0a7",
+                      "source_artifact_id":  null,
+                      "created_at":  "2026-06-19T18:27:18.114989+00:00",
+                      "updated_at":  "2026-06-19T18:27:18.114989+00:00",
+                      "tags":  [
+                                   "greek-yogurt-test",
+                                   "research_only",
+                                   "live",
+                                   "next_step"
+                               ],
+                      "importance":  3,
+                      "recency_score":  1.0,
+                      "trust_score":  0.8,
+                      "expires_at":  null,
+                      "is_active":  true,
+                      "is_sensitive":  false,
+                      "should_inject_by_default":  true,
+                      "allowed_agents":  [
+
+                                         ],
+                      "blocked_agents":  [
+
+                                         ],
+                      "token_estimate":  28,
+                      "sparse_vector":  {
+                                            "next":  0.162221,
+                                            "step":  0.162221,
+                                            "309ce14b":  0.162221,
+                                            "review":  0.324443,
+                                            "sources":  0.324443,
+                                            "limitations":  0.324443,
+                                            "before":  0.324443,
+                                            "using":  0.324443,
+                                            "claims":  0.324443,
+                                            "enable":  0.162221,
+                                            "live":  0.162221,
+                                            "web":  0.162221,
+                                            "search":  0.162221,
+                                            "when":  0.162221,
+                                            "you":  0.162221,
+                                            "want":  0.162221,
+                                            "paid":  0.162221,
+                                            "current":  0.162221,
+                                            "provider":  0.162221,
+                                            "data":  0.162221
+                                        },
+                      "keywords":  [
+                                       "review",
+                                       "sources",
+                                       "limitations",
+                                       "before",
+                                       "using",
+                                       "claims",
+                                       "next",
+                                       "step",
+                                       "309ce14b",
+                                       "enable",
+                                       "live",
+                                       "web"
+                                   ],
+                      "normalized_text":  "next step 309ce14b review sources limitations before using claims review sources limitations before using claims enable live web search when you want paid current provider data",
+                      "hash":  "83b16d5a33aaa85f",
+                      "constraints":  [
+
+                                      ],
+                      "models_used":  [
+
+                                      ],
+                      "agents_used":  [
+
+                                      ],
+                      "search_provider":  null,
+                      "source_urls":  [
+
+                                      ],
+                      "file_paths":  [
+
+                                     ],
+                      "error_types":  [
+
+                                      ],
+                      "metadata":  {
+
+                                   }
+                  },
+                  {
+                      "id":  "36f648f3-5953-4e65-b948-172e334cd54b",
+                      "project_id":  "greek-yogurt-test",
+                      "scope":  "project",
+                      "memory_type":  "safety_constraint",
+                      "title":  "Constraints from 309ce14b",
+                      "content":  "Do not use GPT-5.5 unless explicitly approved.\nDo not deploy, install packages, take payments, send emails, or post publicly without explicit approval.\nDo not update files for research_only.\nThe current command explicitly blocks GPT-5.5.\nThe current command explicitly blocks file writes.",
+                      "summary":  "Do not use GPT-5.5 unless explicitly approved.; Do not deploy, install packages, take payments, send emails, or post publicly without explicit approval.; Do not update files for research_only.; The current command explicitly blocks GPT-5.5.; The current command explicitly blocks file writes.",
+                      "source_type":  "run",
+                      "source_path":  null,
+                      "source_run_id":  "309ce14b-42c0-454f-a530-d23edd45e0a7",
+                      "source_artifact_id":  null,
+                      "created_at":  "2026-06-19T18:27:18.105989+00:00",
+                      "updated_at":  "2026-06-19T18:27:18.105989+00:00",
+                      "tags":  [
+                                   "greek-yogurt-test",
+                                   "research_only",
+                                   "live",
+                                   "constraints"
+                               ],
+                      "importance":  5,
+                      "recency_score":  1.0,
+                      "trust_score":  0.8,
+                      "expires_at":  null,
+                      "is_active":  true,
+                      "is_sensitive":  false,
+                      "should_inject_by_default":  true,
+                      "allowed_agents":  [
+
+                                         ],
+                      "blocked_agents":  [
+
+                                         ],
+                      "token_estimate":  85,
+                      "sparse_vector":  {
+                                            "constraints":  0.074125,
+                                            "309ce14b":  0.074125,
+                                            "use":  0.14825,
+                                            "gpt-5":  0.2965,
+                                            "unless":  0.14825,
+                                            "explicitly":  0.44475,
+                                            "approved":  0.14825,
+                                            "deploy":  0.14825,
+                                            "install":  0.14825,
+                                            "packages":  0.14825,
+                                            "take":  0.14825,
+                                            "payments":  0.14825,
+                                            "send":  0.14825,
+                                            "emails":  0.14825,
+                                            "post":  0.14825,
+                                            "publicly":  0.14825,
+                                            "without":  0.14825,
+                                            "explicit":  0.14825,
+                                            "approval":  0.14825,
+                                            "update":  0.14825,
+                                            "files":  0.14825,
+                                            "research_only":  0.14825,
+                                            "current":  0.2965,
+                                            "command":  0.2965,
+                                            "blocks":  0.2965,
+                                            "file":  0.14825,
+                                            "writes":  0.14825
+                                        },
+                      "keywords":  [
+                                       "explicitly",
+                                       "gpt-5",
+                                       "current",
+                                       "command",
+                                       "blocks",
+                                       "use",
+                                       "unless",
+                                       "approved",
+                                       "deploy",
+                                       "install",
+                                       "packages",
+                                       "take"
+                                   ],
+                      "normalized_text":  "constraints 309ce14b use gpt-5 unless explicitly approved deploy install packages take payments send emails post publicly without explicit approval update files research_only current command explicitly blocks gpt-5 current command explicitly blocks file writes use gpt-5 unless explicitly approved deploy install packages take payments send emails post publicly without explicit approval update files research_only current command explicitly blocks gpt-5 current command explicitly blocks file writes",
+                      "hash":  "feacaa268988f4f8",
+                      "constraints":  [
+
+                                      ],
+                      "models_used":  [
+
+                                      ],
+                      "agents_used":  [
+
+                                      ],
+                      "search_provider":  null,
+                      "source_urls":  [
+
+                                      ],
+                      "file_paths":  [
+
+                                     ],
+                      "error_types":  [
+
+                                      ],
+                      "metadata":  {
+
+                                   }
+                  },
+                  {
+                      "id":  "9a7a0f9d-d07f-4346-a31b-5a6138d010dd",
+                      "project_id":  "greek-yogurt-test",
+                      "scope":  "project",
+                      "memory_type":  "qa_warning",
+                      "title":  "QA warnings 309ce14b",
+                      "content":  "## Decisions - **Do not update files** (research-only). - **Return 3 real sources with URLs** (no competitor/pricing claims beyond source listing). - **Use only the provided Exa findings**; note that the run may be **mock-mode** unless live search is confirmed. ## Generated Content (3 sources) 1. https://www.indexbox.io/blog/danone-sues-chobani-over-alleged-protein-content-misrepresentation/ 2. https://yogyapost.com/2026/06/16/danone-sues-chobani-over-protein-claims-in-greek-yogurt-dispute/ 3. https://tracxn.com/d/companies/fage/__PCq-aWzeSdpE04xK6ZY5cKYAs64qPGmGKTuicTn9m0E ## Next Steps - Confirm whether the Exa run was **live** (not",
+                      "summary":  "**Do not update files** (research-only).",
+                      "source_type":  "qa_review",
+                      "source_path":  "qa_review.md",
+                      "source_run_id":  "309ce14b-42c0-454f-a530-d23edd45e0a7",
+                      "source_artifact_id":  "f245dbcf-1082-4c96-96d0-9501448a5113",
+                      "created_at":  "2026-06-19T18:27:18.096489+00:00",
+                      "updated_at":  "2026-06-19T18:27:18.096489+00:00",
+                      "tags":  [
+                                   "greek-yogurt-test",
+                                   "research_only",
+                                   "live",
+                                   "qa",
+                                   "warnings"
+                               ],
+                      "importance":  4,
+                      "recency_score":  1.0,
+                      "trust_score":  0.8,
+                      "expires_at":  null,
+                      "is_active":  true,
+                      "is_sensitive":  false,
+                      "should_inject_by_default":  true,
+                      "allowed_agents":  [
+                                             "qa_agent",
+                                             "website_agent",
+                                             "research_agent"
+                                         ],
+                      "blocked_agents":  [
+
+                                         ],
+                      "token_estimate":  71,
+                      "sparse_vector":  {
+                                            "warnings":  0.11547,
+                                            "309ce14b":  0.11547,
+                                            "update":  0.23094,
+                                            "files":  0.23094,
+                                            "research-only":  0.23094,
+                                            "decisions":  0.11547,
+                                            "return":  0.11547,
+                                            "real":  0.11547,
+                                            "sources":  0.23094,
+                                            "urls":  0.11547,
+                                            "competitor":  0.11547,
+                                            "pricing":  0.11547,
+                                            "claims":  0.11547,
+                                            "beyond":  0.11547,
+                                            "source":  0.11547,
+                                            "listing":  0.11547,
+                                            "use":  0.11547,
+                                            "provided":  0.11547,
+                                            "exa":  0.23094,
+                                            "findings":  0.11547,
+                                            "note":  0.11547,
+                                            "may":  0.11547,
+                                            "mock-mode":  0.11547,
+                                            "unless":  0.11547,
+                                            "live":  0.23094,
+                                            "search":  0.11547,
+                                            "confirmed":  0.11547,
+                                            "generated":  0.11547,
+                                            "content":  0.11547,
+                                            "https":  0.34641,
+                                            "www":  0.11547,
+                                            "indexbox":  0.11547,
+                                            "blog":  0.11547,
+                                            "danone-sues-chobani-over-alleged-protein-content-misrepresentation":  0.11547,
+                                            "yogyapost":  0.11547,
+                                            "com":  0.23094,
+                                            "2026":  0.11547,
+                                            "danone-sues-chobani-over-protein-claims-in-greek-yogurt-dispute":  0.11547,
+                                            "tracxn":  0.11547,
+                                            "companies":  0.11547,
+                                            "fage":  0.11547,
+                                            "pcq-awzesdpe04xk6zy5ckyas64qpgmgktuictn9m0e":  0.11547,
+                                            "next":  0.11547,
+                                            "steps":  0.11547,
+                                            "confirm":  0.11547,
+                                            "whether":  0.11547
+                                        },
+                      "keywords":  [
+                                       "https",
+                                       "update",
+                                       "files",
+                                       "research-only",
+                                       "sources",
+                                       "exa",
+                                       "live",
+                                       "com",
+                                       "warnings",
+                                       "309ce14b",
+                                       "decisions",
+                                       "return"
+                                   ],
+                      "normalized_text":  "warnings 309ce14b update files research-only decisions update files research-only return real sources urls competitor pricing claims beyond source listing use provided exa findings note may mock-mode unless live search confirmed generated content sources https www indexbox blog danone-sues-chobani-over-alleged-protein-content-misrepresentation https yogyapost com 2026 danone-sues-chobani-over-protein-claims-in-greek-yogurt-dispute https tracxn com companies fage pcq-awzesdpe04xk6zy5ckyas64qpgmgktuictn9m0e next steps confirm whether exa live",
+                      "hash":  "1452b03569d7aacc",
+                      "constraints":  [
+
+                                      ],
+                      "models_used":  [
+
+                                      ],
+                      "agents_used":  [
+
+                                      ],
+                      "search_provider":  null,
+                      "source_urls":  [
+
+                                      ],
+                      "file_paths":  [
+
+                                     ],
+                      "error_types":  [
+
+                                      ],
+                      "metadata":  {
+
+                                   }
+                  }
+              ]
+}

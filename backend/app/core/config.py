@@ -43,6 +43,7 @@ class Settings(BaseSettings):
     run_store_path: str = "./backend/data/runs"
     approval_store_path: str = "./backend/data/approvals"
     provider_usage_store_path: str = "./backend/data/provider_usage"
+    memory_store_path: str = "./backend/data/memory"
     current_state_path: str = "./backend/data/current_state.txt"
     openai_tracking_id: str = ""
 
@@ -77,6 +78,13 @@ class Settings(BaseSettings):
     auto_sync_provider_usage_after_live_run: bool = True
     auto_sync_official_usage_after_live_run: bool = True
     official_usage_sync_cooldown_minutes: int = 10
+    enable_vector_memory: bool = True
+    memory_top_k: int = 5
+    memory_max_tokens_per_agent: int = 1200
+    debug_memory_context: bool = False
+    memory_ingest_after_run: bool = True
+    memory_use_in_mock: bool = True
+    memory_use_in_live: bool = False
 
     model_config = SettingsConfigDict(
         env_file=(REPO_ROOT / ".env", REPO_ROOT / "backend" / ".env"),
@@ -124,6 +132,11 @@ class Settings(BaseSettings):
     @property
     def provider_usage_path(self) -> Path:
         configured = Path(self.provider_usage_store_path)
+        return configured if configured.is_absolute() else REPO_ROOT / configured
+
+    @property
+    def memory_path(self) -> Path:
+        configured = Path(self.memory_store_path)
         return configured if configured.is_absolute() else REPO_ROOT / configured
 
     @property

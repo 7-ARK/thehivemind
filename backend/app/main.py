@@ -46,7 +46,7 @@ def api_index() -> dict[str, object]:
             "agent_registry": "/api/agent-registry/agents",
             "model_registry": "/api/model-registry/summary",
             "search_tools": "/api/search-tools/status",
-            "memory": "/api/memory/summary",
+            "memory": "/api/memory/status",
             "providers": "/api/providers/status",
             "usage": "/api/usage/summary",
             "official_usage": "/api/official-usage/status",
