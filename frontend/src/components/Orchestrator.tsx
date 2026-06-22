@@ -13,6 +13,7 @@ import {
   FileText,
   PlayCircle,
   ShieldCheck,
+  Search,
   Terminal,
   ToggleLeft,
   ToggleRight,
@@ -34,7 +35,14 @@ export default function Orchestrator({ onWorkflowCompleted, onOpenProject, onOpe
   const [runType, setRunType] = useState<CreateRunPayload["run_type"]>("prototype_build");
   const [allowFileWrites, setAllowFileWrites] = useState(true);
   const [allowSafeCommands, setAllowSafeCommands] = useState(true);
+  const [allowWebSearch, setAllowWebSearch] = useState(false);
   const [allowCeoLive, setAllowCeoLive] = useState(false);
+  const [useMemory, setUseMemory] = useState(true);
+  const [useRealCodingAgent, setUseRealCodingAgent] = useState(true);
+  const [allowLiveCodingModelCall, setAllowLiveCodingModelCall] = useState(false);
+  const [realCodingDryRun, setRealCodingDryRun] = useState(false);
+  const [realCodingModel, setRealCodingModel] = useState("moonshotai/kimi-k2.7-code");
+  const [realCodingMaxFiles, setRealCodingMaxFiles] = useState("12");
   const [maxCostUsd, setMaxCostUsd] = useState("0.25");
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<RunResult | null>(null);
@@ -44,29 +52,73 @@ export default function Orchestrator({ onWorkflowCompleted, onOpenProject, onOpe
   const [resultCommands, setResultCommands] = useState<CommandResult[]>([]);
   const [resultChanges, setResultChanges] = useState<ProjectChange[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const promptConstraints = useMemo(() => promptConstraintState(command), [command]);
+  const effectiveRunType = promptConstraints.forceResearchOnly ? "research_only" : promptConstraints.forceWebsiteUpdate ? "website_update" : runType;
 
   const payload = useMemo<CreateRunPayload>(
     () => ({
       command: command.trim(),
       mode,
       project_id: projectId.trim() || null,
-      run_type: runType,
-      allow_file_writes: allowFileWrites,
-      allow_safe_commands: allowSafeCommands,
+      run_type: effectiveRunType,
+      allow_file_writes: allowFileWrites && !promptConstraints.disableFileWrites,
+      allow_safe_commands: allowSafeCommands && !promptConstraints.disableSafeCommands,
+      allow_web_search: allowWebSearch && !promptConstraints.disableWebSearch,
       allow_ceo_live: allowCeoLive,
+      use_memory: useMemory,
+      use_real_coding_agent: useRealCodingAgent,
+      allow_live_coding_model_call: allowLiveCodingModelCall,
+      real_coding_dry_run: realCodingDryRun,
+      real_coding_model: realCodingModel || null,
+      real_coding_max_files: Number(realCodingMaxFiles) || null,
       max_cost_usd: Number(maxCostUsd) || 0.25,
     }),
-    [allowCeoLive, allowFileWrites, allowSafeCommands, command, maxCostUsd, mode, projectId, runType],
+    [allowCeoLive, allowFileWrites, allowLiveCodingModelCall, allowSafeCommands, allowWebSearch, command, effectiveRunType, maxCostUsd, mode, projectId, promptConstraints, realCodingDryRun, realCodingMaxFiles, realCodingModel, useMemory, useRealCodingAgent],
   );
 
   useEffect(() => {
-    if (runType !== "provider_test") return;
-    setMode("live");
+    if (runType === "provider_test") {
+      setMode("live");
+      setAllowFileWrites(false);
+      setAllowSafeCommands(false);
+      setAllowWebSearch(false);
+      setAllowCeoLive(false);
+      setMaxCostUsd("0.01");
+    }
+    if (runType === "website_update") {
+      setAllowFileWrites(true);
+      setAllowSafeCommands(true);
+      setAllowCeoLive(false);
+      setUseRealCodingAgent(true);
+      setAllowLiveCodingModelCall(false);
+      setMaxCostUsd("0.05");
+    }
+    if (runType === "research_only" || runType === "research") {
+      setAllowFileWrites(false);
+      setAllowSafeCommands(false);
+      setAllowCeoLive(false);
+      setAllowWebSearch(false);
+      setMaxCostUsd("0.03");
+    }
+  }, [runType]);
+
+  useEffect(() => {
+    if (!promptConstraints.forceWebsiteUpdate) return;
+    setRunType("website_update");
+    setAllowFileWrites(true);
+    setAllowSafeCommands(true);
+    setAllowCeoLive(false);
+    setUseRealCodingAgent(true);
+    setAllowLiveCodingModelCall(false);
+  }, [promptConstraints.forceWebsiteUpdate]);
+
+  useEffect(() => {
+    if (!promptConstraints.forceResearchOnly) return;
+    setRunType("research_only");
     setAllowFileWrites(false);
     setAllowSafeCommands(false);
     setAllowCeoLive(false);
-    setMaxCostUsd("0.01");
-  }, [runType]);
+  }, [promptConstraints.forceResearchOnly]);
 
   const executeRun = async (runPayload: CreateRunPayload) => {
     if (running || !runPayload.command) return;
@@ -188,9 +240,11 @@ export default function Orchestrator({ onWorkflowCompleted, onOpenProject, onOpe
                 </select>
               </Field>
 
-              <Field label="Run Type" helper="provider_test runs one tiny live call with no files or commands; prototype_build and continuation use project files.">
+              <Field label="Run Type" helper="research_only selects Research + QA only; website_update selects Website + QA only.">
                 <select value={runType} onChange={(event) => setRunType(event.target.value as CreateRunPayload["run_type"])} disabled={running} className="control-input">
+                  <option value="research_only">Research Only</option>
                   <option value="provider_test">provider_test</option>
+                  <option value="website_update">website_update</option>
                   <option value="prototype_build">prototype_build</option>
                   <option value="business_launch_plan">business_launch_plan</option>
                   <option value="continuation">continuation</option>
@@ -198,9 +252,17 @@ export default function Orchestrator({ onWorkflowCompleted, onOpenProject, onOpe
               </Field>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-4 gap-3">
+            <div className="grid grid-cols-1 lg:grid-cols-6 gap-3">
               <ToggleControl label="Allow file writes" checked={allowFileWrites} onChange={setAllowFileWrites} disabled={running} />
               <ToggleControl label="Allow safe commands" checked={allowSafeCommands} onChange={setAllowSafeCommands} disabled={running} />
+              <ToggleControl label="Use Memory" checked={useMemory} onChange={setUseMemory} disabled={running} warning="Local sparse memory only. Live memory use is backend-gated." />
+              <ToggleControl
+                label="Allow web search"
+                checked={allowWebSearch}
+                onChange={setAllowWebSearch}
+                disabled={running}
+                warning="Uses Exa by default when configured; OpenAI/Gemini search are gated."
+              />
               <ToggleControl
                 label="Allow CEO live model"
                 checked={allowCeoLive}
@@ -222,12 +284,63 @@ export default function Orchestrator({ onWorkflowCompleted, onOpenProject, onOpe
               </Field>
             </div>
 
+            <div className="grid grid-cols-1 lg:grid-cols-5 gap-3">
+              <ToggleControl
+                label="Use Real Coding Agent"
+                checked={useRealCodingAgent}
+                onChange={setUseRealCodingAgent}
+                disabled={running}
+                warning="Preferred for website/file edits. Mock mode simulates the coding call."
+              />
+              <ToggleControl
+                label="Allow Live Coding Model Call"
+                checked={allowLiveCodingModelCall}
+                onChange={setAllowLiveCodingModelCall}
+                disabled={running}
+                warning="Requires live mode, backend flags, OpenRouter key, and approval."
+              />
+              <ToggleControl
+                label="Dry Run"
+                checked={realCodingDryRun}
+                onChange={setRealCodingDryRun}
+                disabled={running}
+                warning="Validate proposed patch without applying file changes."
+              />
+              <Field label="Coding Model" helper="OpenRouter coding worker. Kimi is preferred; Qwen is fallback.">
+                <select value={realCodingModel} onChange={(event) => setRealCodingModel(event.target.value)} disabled={running} className="control-input">
+                  <option value="moonshotai/kimi-k2.7-code">Kimi K2.7 Code</option>
+                  <option value="qwen/qwen3-coder">Qwen3 Coder</option>
+                </select>
+              </Field>
+              <Field label="Max files" helper="Maximum files inspected by Real Coding Agent context.">
+                <input
+                  value={realCodingMaxFiles}
+                  onChange={(event) => setRealCodingMaxFiles(event.target.value)}
+                  disabled={running}
+                  type="number"
+                  min="1"
+                  max="20"
+                  className="control-input"
+                />
+              </Field>
+            </div>
+
             {mode === "live" ? (
               <WarningCard>
                 Live mode can use real API credits. GPT-5.5 remains blocked unless CEO live is enabled. Current cost limit: ${payload.max_cost_usd.toFixed(2)}.
               </WarningCard>
             ) : (
               <InfoCard>Mock mode uses deterministic responses and does not spend API credits.</InfoCard>
+            )}
+            {allowWebSearch && (
+              <InfoCard>
+                <Search className="w-4 h-4 shrink-0" />
+                <span>Web search is allowed for this run. Mock mode records the plan with placeholder sources; live mode requires configured provider keys and approval gates.</span>
+              </InfoCard>
+            )}
+
+            {appliedPromptConstraints(command).length > 0 && (
+              <InfoCard>{appliedPromptConstraints(command).join(" ")}</InfoCard>
             )}
 
             {error && <ErrorCard>{error}</ErrorCard>}
@@ -353,7 +466,7 @@ function RunResultPanel({
   onOpenProject: () => void;
   onOpenRunDetail: () => void;
 }) {
-  const costLabel = result.mode === "mock" ? "Estimated if live" : "Cost";
+  const costLabel = result.mode === "mock" ? "Estimated if live" : "Estimated Cost";
   return (
     <section className="bg-[#1a1b1e] border border-[#2c2e33] rounded-lg p-5">
       <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
@@ -547,4 +660,72 @@ function normalizeError(message?: string): string {
   if (message.includes("max_cost_usd") || message.includes("cost")) return message;
   if (message.includes("allow_file_writes")) return "This run type needs file writes enabled.";
   return message;
+}
+
+function appliedPromptConstraints(command: string): string[] {
+  const lowered = command.toLowerCase();
+  const messages = [];
+  if (["do not create files", "don't create files", "no file writes", "do not write files", "do not update files"].some((phrase) => lowered.includes(phrase))) {
+    messages.push("Your prompt restricted file writes, so the system disables those actions for this run.");
+  }
+  if (promptConstraintState(command).forceResearchOnly) {
+    messages.push("Research-only wording is active, so the run will use Research Agent + QA Agent only.");
+  }
+  if (["do not run commands", "don't run commands", "no commands", "do not execute commands"].some((phrase) => lowered.includes(phrase))) {
+    messages.push("Your prompt restricted command execution, so the system disables those actions for this run.");
+  }
+  if (["do not deploy", "don't deploy", "no deploy"].some((phrase) => lowered.includes(phrase))) {
+    messages.push("Deployment is treated as a blocked constraint, not an action request.");
+  }
+  if (["do not install packages", "don't install packages", "no package installs"].some((phrase) => lowered.includes(phrase))) {
+    messages.push("Package installation is treated as a blocked constraint, not an action request.");
+  }
+  if (["do not use gpt-5.5", "don't use gpt-5.5", "no gpt-5.5"].some((phrase) => lowered.includes(phrase))) {
+    messages.push("GPT-5.5 is filtered out before model selection.");
+  }
+  if (["do not search", "don't search", "no web search", "do not browse", "do not run live web search"].some((phrase) => lowered.includes(phrase))) {
+    messages.push("Web search is disabled by the prompt; the system will not pretend to browse.");
+  }
+  return messages;
+}
+
+function promptConstraintState(command: string) {
+  const lowered = command.toLowerCase();
+  const disableFileWrites = ["do not create files", "don't create files", "no file writes", "do not write files", "do not update files"].some((phrase) => lowered.includes(phrase));
+  return {
+    disableFileWrites,
+    disableSafeCommands: ["do not run commands", "don't run commands", "no commands", "do not execute commands"].some((phrase) => lowered.includes(phrase)),
+    disableWebSearch: ["do not search", "don't search", "no web search", "do not browse", "do not run live web search"].some((phrase) => lowered.includes(phrase)),
+    forceResearchOnly: ["research only", "only research", "do not update files"].some((phrase) => lowered.includes(phrase)),
+    forceWebsiteUpdate: isFocusedWebsiteUpdate(lowered),
+  };
+}
+
+function isFocusedWebsiteUpdate(lowered: string): boolean {
+  const fullPrototypeTerms = [
+    "build a full prototype",
+    "create a full prototype",
+    "create full business",
+    "complete initial project",
+    "full greek yogurt prototype",
+    "launch full",
+    "new prototype",
+    "create a simple greek yogurt order website prototype",
+  ];
+  if (fullPrototypeTerms.some((phrase) => lowered.includes(phrase))) return false;
+  return [
+    "improve homepage copy",
+    "update homepage",
+    "edit hero headline",
+    "hero headline",
+    "subheadline",
+    "update website copy",
+    "only edit website/templates/index.html",
+    "only update homepage/content files",
+    "website copy update",
+    "landing page copy",
+    "homepage content",
+    "homepage hero",
+    "copy/content files",
+  ].some((phrase) => lowered.includes(phrase));
 }

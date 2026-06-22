@@ -14,7 +14,7 @@ export default function RunUsagePanel({ run, events }: Props) {
     <section className="bg-[#1a1b1e] border border-[#2c2e33] rounded-lg p-4">
       <h3 className="text-xs font-bold text-[#909296] uppercase tracking-wider font-mono mb-3">Usage</h3>
       <div className="grid grid-cols-2 gap-3">
-        <Metric label={run.mode === "mock" ? "Estimated If Live" : "Cost"} value={`$${run.metrics.total_estimated_cost_usd.toFixed(6)}`} />
+        <Metric label={run.mode === "mock" ? "Estimated If Live" : "Estimated Cost"} value={`$${run.metrics.total_estimated_cost_usd.toFixed(6)}`} />
         {run.mode === "mock" && <Metric label="Actual API Cost" value="$0.00" />}
         <Metric label="Tokens" value={run.metrics.total_estimated_tokens.toLocaleString()} />
         <Metric label="Agents" value={String(run.metrics.agents_used)} />
@@ -24,7 +24,7 @@ export default function RunUsagePanel({ run, events }: Props) {
         <p className="mt-3 text-[11px] text-[#20c997]">Mock mode run. No live API credits were used by this run path.</p>
       )}
       {run.mode === "live" && (
-        <p className="mt-3 text-[11px] text-[#fab005]">Live mode run. Inspect models, cost, and provider calls before using outputs publicly.</p>
+        <p className="mt-3 text-[11px] text-[#fab005]">Live mode run. This panel shows local estimates unless provider-reported cost is available in Usage & Costs.</p>
       )}
       <div className="mt-4 space-y-2">
         <h4 className="text-[10px] text-[#909296] uppercase font-mono">{run.mode === "mock" ? "Planned Models" : "Models Used"}</h4>

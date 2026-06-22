@@ -9,7 +9,7 @@ from fastapi import HTTPException
 from app.coding.coding_policy import classify_task
 from app.coding.context_builder import CodingContextBuilder
 from app.coding.patch_applier import PatchApplier
-from app.coding.patch_parser import parse_proposed_patch
+from app.coding.patch_parser import PARSER_ROUTES, PatchParseError, parse_proposed_patch_with_route
 from app.coding.schemas import CodingContext, ProposedPatch, RealCodingAgentResult
 from app.coding.validation import run_validation_commands, validation_commands_for_patch
 from app.core.config import Settings, get_settings
@@ -57,41 +57,90 @@ class RealCodingAgentRunner:
         live_call_made = False
         mock_simulated = mode == "mock"
         provider = "mock" if mode == "mock" else "openrouter"
+        provider_metadata: dict[str, Any] = {}
+        provider_response_diagnostic: dict[str, Any] | None = None
+        fallback_model_used = False
+        parse_error: str | None = None
+        parser_route: str | None = None
+        requested_max_output_tokens = None
+        response_format_requested: str | None = None
+        provider_response_finish_reason: str | None = None
+        actual_output_tokens: int | None = None
+        reasoning_tokens: int | None = None
+        content_source: str | None = None
         notes = [
             "GPT-5.5 was not used because coding worker tasks use OpenRouter coding models and GPT-5.5 remains CEO-gated.",
         ]
 
         if mode == "live":
             self._assert_live_coding_allowed(allow_live_coding_model_call)
-            response_text, selected_model, live_call_made = await self._call_openrouter(
+            response_text, selected_model, live_call_made, provider_metadata, fallback_model_used = await self._call_openrouter(
                 prompt=prompt,
                 model_id=selected_model,
                 fallback_model_id=fallback_model,
                 run_id=run_id,
                 project_id=project_id,
             )
+            requested_max_output_tokens = provider_metadata.get("requested_max_tokens") or self.settings.real_coding_max_output_tokens
+            response_format_requested = _response_format_name(provider_metadata.get("requested_response_format"))
+            provider_response_finish_reason = provider_metadata.get("finish_reason")
+            actual_output_tokens = provider_metadata.get("actual_output_tokens")
+            reasoning_tokens = provider_metadata.get("reasoning_tokens")
+            content_source = provider_metadata.get("content_source")
         else:
             response_text = json.dumps(self._mock_patch(context), indent=2)
+            requested_max_output_tokens = self.settings.real_coding_max_output_tokens
+            response_format_requested = "none"
+            actual_output_tokens = estimate_tokens(response_text)
+            content_source = "mock"
 
         try:
-            patch = parse_proposed_patch(response_text)
-        except Exception as exc:
+            parsed = parse_proposed_patch_with_route(response_text)
+            patch = parsed.patch
+            parser_route = parsed.parser_route
+        except PatchParseError as exc:
+            parse_error = str(exc)
+            parser_route = exc.parser_route
+            if live_call_made:
+                provider_response_diagnostic = _provider_response_diagnostic(
+                    provider=provider,
+                    model=selected_model,
+                    metadata=provider_metadata,
+                    text=response_text,
+                    final_rejection_reason=parse_error,
+                    parser_route=parser_route,
+                    actual_output_tokens=actual_output_tokens,
+                    reasoning_tokens=reasoning_tokens,
+                    content_source=content_source,
+                )
             patch = ProposedPatch(
-                summary="Rejected: coding model output was not valid JSON.",
+                summary="Rejected: coding model output was not a valid file patch.",
                 task_type=task_type,
                 files_to_change=[],
                 files_read=[item.path for item in context.selected_files],
-                risk_notes=[str(exc)],
+                risk_notes=[parse_error],
                 memory_used=context.memory_used[:3],
             )
-            validation = self.applier.validate(patch, task_type=task_type, file_scope=context.allowed_user_file_scope, max_output_files=effective_max_files)
+            validation = self.applier.validate(patch, task_type=task_type, file_scope=context.allowed_user_file_scope, max_output_files=effective_max_files, project_id=project_id)
             validation.accepted = False
-            validation.violations.append(f"JSON parse failed: {exc}")
+            validation.violations.append(parse_error)
             applied_entries: list[ProjectFileWriteResult] = []
             applied_files = []
             validation_results = []
         else:
-            validation = self.applier.validate(patch, task_type=task_type, file_scope=context.allowed_user_file_scope, max_output_files=effective_max_files)
+            validation = self.applier.validate(patch, task_type=task_type, file_scope=context.allowed_user_file_scope, max_output_files=effective_max_files, project_id=project_id)
+            if live_call_made and not validation.accepted:
+                provider_response_diagnostic = _provider_response_diagnostic(
+                    provider=provider,
+                    model=selected_model,
+                    metadata=provider_metadata,
+                    text=response_text,
+                    final_rejection_reason="; ".join(validation.violations) or "Patch validation rejected the proposed change.",
+                    parser_route=parser_route,
+                    actual_output_tokens=actual_output_tokens,
+                    reasoning_tokens=reasoning_tokens,
+                    content_source=content_source,
+                )
             if validation.accepted:
                 effective_dry_run = dry_run or self.settings.real_coding_dry_run
                 applied_entries, applied_files = self.applier.apply(
@@ -116,6 +165,8 @@ class RealCodingAgentRunner:
 
         patch_applied = bool(applied_entries) and validation.accepted and not dry_run
         no_change_reason = None
+        if parse_error:
+            no_change_reason = "No user-facing changes were applied because the coding provider response was invalid or empty."
         if validation.accepted and not patch_applied and not (dry_run or self.settings.real_coding_dry_run):
             no_change_reason = "Requested content already matches the current file, or no safe improvement was necessary."
         memory_items = patch.memory_used or context.memory_used[:3]
@@ -131,12 +182,23 @@ class RealCodingAgentRunner:
             actual_provider=provider,
             selected_model=selected_model,
             fallback_model=fallback_model,
+            fallback_model_used=fallback_model_used,
             live_call_made=live_call_made,
             mock_simulated=mock_simulated,
             dry_run=dry_run or self.settings.real_coding_dry_run,
             hardcoded_fallback_used=False,
             patch_applied=patch_applied,
             no_change_reason=no_change_reason,
+            parse_error=parse_error,
+            parser_route=parser_route,
+            parser_route_attempted=PARSER_ROUTES,
+            provider_response_diagnostic=provider_response_diagnostic,
+            requested_max_output_tokens=requested_max_output_tokens,
+            response_format_requested=response_format_requested,
+            provider_response_finish_reason=provider_response_finish_reason,
+            actual_output_tokens=actual_output_tokens,
+            reasoning_tokens=reasoning_tokens,
+            content_source=content_source,
             repair_attempts=0,
             task_type=task_type,
             allowed_user_file_scope=context.allowed_user_file_scope,
@@ -174,18 +236,20 @@ class RealCodingAgentRunner:
         if not self.settings.openrouter_api_key:
             raise HTTPException(status_code=400, detail="OpenRouter API key is not configured.")
 
-    async def _call_openrouter(self, *, prompt: str, model_id: str, fallback_model_id: str, run_id: str, project_id: str) -> tuple[str, str, bool]:
+    async def _call_openrouter(self, *, prompt: str, model_id: str, fallback_model_id: str, run_id: str, project_id: str) -> tuple[str, str, bool, dict[str, Any], bool]:
         messages = [
-            {"role": "system", "content": "You are a careful coding agent. Return strict JSON only."},
+            {"role": "system", "content": "You are a careful coding agent. Return JSON only: no markdown fences, no prose, no commentary."},
             {"role": "user", "content": prompt},
         ]
+        max_output_tokens = self.settings.real_coding_max_output_tokens
+        response_format = {"type": "json_object"}
         try:
             response, _usage_id = await generate_with_provider(
                 provider="openrouter",
                 model=model_id,
                 mode="live",
                 messages=messages,
-                max_output_tokens=min(1600, self.settings.max_output_tokens_per_call),
+                max_output_tokens=max_output_tokens,
                 temperature=0.1,
                 run_id=run_id,
                 task_id=f"{run_id}:real_coding_agent",
@@ -193,16 +257,17 @@ class RealCodingAgentRunner:
                 agent_role="Project file editing",
                 project_id=project_id,
                 request_type="real_coding_agent",
+                response_format=response_format,
                 settings=self.settings,
             )
-            return response.text, model_id, True
+            return response.text, model_id, True, _response_metadata_with_tokens(response.raw_metadata, response.output_tokens), False
         except HTTPException:
             response, _usage_id = await generate_with_provider(
                 provider="openrouter",
                 model=fallback_model_id,
                 mode="live",
                 messages=messages,
-                max_output_tokens=min(1600, self.settings.max_output_tokens_per_call),
+                max_output_tokens=max_output_tokens,
                 temperature=0.1,
                 run_id=run_id,
                 task_id=f"{run_id}:real_coding_agent:fallback",
@@ -210,9 +275,10 @@ class RealCodingAgentRunner:
                 agent_role="Project file editing",
                 project_id=project_id,
                 request_type="real_coding_agent",
+                response_format=response_format,
                 settings=self.settings,
             )
-            return response.text, fallback_model_id, True
+            return response.text, fallback_model_id, True, _response_metadata_with_tokens(response.raw_metadata, response.output_tokens), True
 
     def _mock_patch(self, context: CodingContext) -> dict[str, Any]:
         changes = []
@@ -270,9 +336,10 @@ class RealCodingAgentRunner:
             agent_name="Real Coding Agent",
             agent_role="Project file editing",
             status="completed" if result.validation.accepted else "blocked",
-            action_summary="Applied structured coding patch" if result.patch_applied else ("Prepared dry-run patch" if result.dry_run else "Validated structured coding patch"),
+            action_summary="Applied structured coding patch" if result.patch_applied else ("Prepared dry-run patch" if result.dry_run else "Rejected invalid coding patch" if result.parse_error else "Validated structured coding patch"),
             input_summary=command,
-            output_summary=f"{result.actual_provider} / {result.selected_model}; files selected: {', '.join(result.files_selected[:6])}; files changed: {', '.join(result.files_changed[:6]) or 'none'}",
+            output_summary=f"{result.actual_provider} / {result.selected_model}; parser: {result.parser_route or 'n/a'}; files selected: {', '.join(result.files_selected[:6])}; files changed: {', '.join(result.files_changed[:6]) or 'none'}"
+            + (f"; parse error: {result.parse_error}" if result.parse_error else ""),
             model_used=result.selected_model,
             provider=result.actual_provider,
             estimated_input_tokens=input_tokens,
@@ -281,6 +348,68 @@ class RealCodingAgentRunner:
             estimated_cost_usd=estimate_cost_usd(result.selected_model, input_tokens, output_tokens),
             estimated_cost=estimate_cost_usd(result.selected_model, input_tokens, output_tokens),
         )
+
+
+def _provider_response_diagnostic(
+    *,
+    provider: str,
+    model: str,
+    metadata: dict[str, Any],
+    text: str,
+    final_rejection_reason: str,
+    parser_route: str | None,
+    actual_output_tokens: int | None,
+    reasoning_tokens: int | None,
+    content_source: str | None,
+) -> dict[str, Any]:
+    return {
+        "provider": provider,
+        "model": model,
+        "http_status": metadata.get("http_status"),
+        "finish_reason": metadata.get("finish_reason"),
+        "requested_max_output_tokens": metadata.get("requested_max_tokens"),
+        "actual_output_tokens": actual_output_tokens,
+        "reasoning_tokens": reasoning_tokens,
+        "response_format_requested": _response_format_name(metadata.get("requested_response_format")),
+        "content_length": len(text or ""),
+        "content_source": content_source or metadata.get("content_source") or "unknown",
+        "parser_route_attempted": PARSER_ROUTES,
+        "parser_route": parser_route,
+        "final_rejection_reason": final_rejection_reason,
+        "response_shape": metadata.get("response_shape") or {},
+        "safe_content_preview_start": _redacted_preview_start(text),
+        "safe_content_preview_end": _redacted_preview_end(text),
+    }
+
+
+def _response_metadata_with_tokens(metadata: dict[str, Any], output_tokens: int) -> dict[str, Any]:
+    enriched = dict(metadata)
+    enriched.setdefault("actual_output_tokens", output_tokens)
+    return enriched
+
+
+def _response_format_name(value: Any) -> str:
+    if isinstance(value, dict) and value.get("type") == "json_object":
+        return "json_object"
+    return "none" if not value else str(value)
+
+
+def _redacted_preview_start(text: str, limit: int = 240) -> str:
+    preview = (text or "")[:limit]
+    return _redact_preview(preview)
+
+
+def _redacted_preview_end(text: str, limit: int = 240) -> str:
+    preview = (text or "")[-limit:] if text else ""
+    return _redact_preview(preview)
+
+
+def _redact_preview(preview: str) -> str:
+    lowered = preview.lower()
+    secret_markers = ("sk-", "api_key", "apikey", "authorization", "bearer ", "private_key", "openrouter_api_key")
+    if any(marker in lowered for marker in secret_markers):
+        return "[redacted]"
+    return preview
 
 
 def _mock_updated_content(path: str, content: str, command: str, memory_used: list[dict[str, Any]]) -> str:

@@ -22,11 +22,15 @@ export default function RunCommandsPanel({ commands }: Props) {
               </div>
               <div className="flex flex-wrap gap-3 text-[10px] text-[#909296] font-mono mt-2">
                 <span>cwd: {command.cwd}</span>
+                {command.resolved_cwd && <span>resolved: {command.resolved_cwd}</span>}
+                {command.executable_command?.length ? <span>exec: {command.executable_command.join(" ")}</span> : null}
                 <span>{command.duration_ms}ms</span>
                 {command.blocked_reason && <span className="text-[#fab005]">{command.blocked_reason}</span>}
+                {command.error_type && <span className="text-[#fab005]">{command.error_type}</span>}
               </div>
               {command.stdout && <pre className="text-[11px] text-[#909296] mt-2 whitespace-pre-wrap">{command.stdout.slice(0, 700)}</pre>}
               {command.stderr && <pre className="text-[11px] text-rose-300 mt-2 whitespace-pre-wrap">{command.stderr.slice(0, 700)}</pre>}
+              {command.error_message && <p className="text-[11px] text-[#fab005] mt-2">{command.error_message}</p>}
             </div>
           ))}
         </div>

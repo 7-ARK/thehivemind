@@ -35,6 +35,7 @@ async def generate_with_provider(
     agent_role: str | None = None,
     project_id: str | None = None,
     request_type: str = "provider_test",
+    response_format: dict | None = None,
     settings: Settings | None = None,
     usage_store: UsageStore | None = None,
 ) -> tuple[ProviderResponse, str]:
@@ -48,14 +49,15 @@ async def generate_with_provider(
     if mode not in {"mock", "live"}:
         raise HTTPException(status_code=400, detail="mode must be 'mock' or 'live'.")
 
-    if max_output_tokens > settings.max_output_tokens_per_call:
+    output_limit = settings.real_coding_max_output_tokens if request_type == "real_coding_agent" else settings.max_output_tokens_per_call
+    if max_output_tokens > output_limit:
         raise HTTPException(
             status_code=400,
-            detail=f"max_output_tokens exceeds MAX_OUTPUT_TOKENS_PER_CALL={settings.max_output_tokens_per_call}.",
+            detail=f"max_output_tokens exceeds configured output token limit={output_limit}.",
         )
 
     input_tokens = estimate_messages_tokens(messages)
-    assert_call_budget(model, input_tokens, max_output_tokens, service_tier=service_tier)
+    assert_call_budget(model, input_tokens, max_output_tokens, service_tier=service_tier, max_output_tokens_per_call=output_limit)
 
     effective_provider = provider
     if mode == "mock":
@@ -72,6 +74,7 @@ async def generate_with_provider(
             max_output_tokens=max_output_tokens,
             temperature=temperature,
             service_tier=service_tier,
+            response_format=response_format,
         )
         usage_log_id = usage_store.log_call(
             run_id=run_id,

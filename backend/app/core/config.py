@@ -40,6 +40,7 @@ class Settings(BaseSettings):
     real_coding_agent_fallback_model: str = "qwen/qwen3-coder"
     real_coding_max_input_files: int = 12
     real_coding_max_output_files: int = 8
+    real_coding_max_output_tokens: int = 3000
     real_coding_max_patch_bytes: int = 50000
     real_coding_max_repair_attempts: int = 1
     real_coding_require_diff: bool = True

@@ -90,8 +90,13 @@ class CodingContextBuilder:
             "required_response_format": {
                 "summary": "string",
                 "task_type": context.task_type,
-                "files_to_change": [
-                    {"path": "relative/path", "reason": "why", "change_type": "modify|create", "new_content": "full file content"}
+                "files": [
+                    {
+                        "path": "relative/path",
+                        "content": "complete updated file content for broad edits",
+                        "edits": [{"old_text": "current exact text", "new_text": "replacement exact text"}],
+                        "reason": "why this file changed",
+                    }
                 ],
                 "files_read": ["relative/path"],
                 "validation_commands": [{"cmd": ["python", "-m", "py_compile", "website/app.py"], "reason": "why"}],
@@ -101,7 +106,10 @@ class CodingContextBuilder:
         }
         return (
             "You are TheHiveMind Real Coding Agent v1. Return strict JSON only. "
-            "Use full-file replacement content for each changed file. Do not include markdown fences.\n\n"
+            "Return one JSON object with a files array only when changes are needed. "
+            "For exact copy replacements, prefer the compact edits array with old_text and new_text instead of returning a full HTML file. "
+            "For broader code edits, use complete updated file content. Each files item must include path, reason, and either content or edits. "
+            "Do not include markdown fences, commentary, partial diffs, or files outside allowed_user_file_scope.\n\n"
             + json.dumps(payload, indent=2)
         )
 

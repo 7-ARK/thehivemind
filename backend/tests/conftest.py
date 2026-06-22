@@ -18,6 +18,7 @@ def client(monkeypatch, tmp_path):
     monkeypatch.setenv("REAL_CODING_AGENT_FALLBACK_MODEL", "qwen/qwen3-coder")
     monkeypatch.setenv("REAL_CODING_MAX_INPUT_FILES", "12")
     monkeypatch.setenv("REAL_CODING_MAX_OUTPUT_FILES", "8")
+    monkeypatch.setenv("REAL_CODING_MAX_OUTPUT_TOKENS", "3000")
     monkeypatch.setenv("REAL_CODING_DRY_RUN", "false")
     monkeypatch.setenv("OPENAI_API_KEY", "")
     monkeypatch.setenv("OPENAI_ADMIN_API_KEY", "")

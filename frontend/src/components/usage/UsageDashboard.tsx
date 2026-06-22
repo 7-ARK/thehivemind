@@ -114,10 +114,10 @@ async function noopSeedDemo(): Promise<void> {
 
 function RealSummaryCards({ summary }: { summary: RealUsageSummary | null }) {
   const cards = [
-    { label: "Run-Level Provider Cost", value: `$${(summary?.run_level_provider_cost_usd ?? 0).toFixed(6)}`, desc: "provider_response + generation lookup" },
+    { label: "Actual Model Cost", value: `$${(summary?.model_provider_reported_cost_usd ?? summary?.run_level_provider_cost_usd ?? 0).toFixed(6)}`, desc: "provider-reported model/API spend" },
+    { label: "Search Estimate", value: `$${(summary?.search_tool_estimated_cost_usd ?? 0).toFixed(6)}`, desc: "search_tool_estimate logs" },
     { label: "Run-Level Tokens", value: (summary?.run_level_tokens ?? 0).toLocaleString(), desc: "provider-given token counts" },
     { label: "Official Billing", value: `$${(summary?.official_billing_cost_usd ?? 0).toFixed(6)}`, desc: "official delayed billing/export" },
-    { label: "Account Records", value: String(summary?.account_balance_records ?? 0), desc: "account-level balances/credits" },
   ];
   return (
     <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
@@ -210,10 +210,11 @@ function aggregateOfficialBillingCards(records: RealOfficialBillingRecord[]): Re
   const openrouterLatest = latestRecord(records.filter((record) => record.provider === "openrouter" && record.source === "provider_account_balance"));
   const openai = aggregateProviderBilling("openai", records);
   const google = aggregateProviderBilling("google", records);
-  return [openrouterLatest, openai, google].filter(Boolean) as RealOfficialBillingRecord[];
+  const exa = aggregateProviderBilling("exa", records);
+  return [openrouterLatest, openai, google, exa].filter(Boolean) as RealOfficialBillingRecord[];
 }
 
-function aggregateProviderBilling(provider: "openai" | "google", records: RealOfficialBillingRecord[]): RealOfficialBillingRecord | null {
+function aggregateProviderBilling(provider: "openai" | "google" | "exa", records: RealOfficialBillingRecord[]): RealOfficialBillingRecord | null {
   const providerRecords = records.filter((record) => record.provider === provider && record.source === "provider_official_billing");
   if (providerRecords.length === 0) return null;
   if (providerRecords.length === 1) return providerRecords[0];

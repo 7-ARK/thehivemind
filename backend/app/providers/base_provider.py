@@ -30,6 +30,7 @@ class BaseProvider(ABC):
         max_output_tokens: int = 300,
         temperature: float = 0.2,
         service_tier: str | None = None,
+        response_format: dict[str, Any] | None = None,
     ) -> ProviderResponse:
         ...
 

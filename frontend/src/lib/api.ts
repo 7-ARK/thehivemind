@@ -26,6 +26,14 @@ import {
   ApprovalRequest,
   RunStartResponse,
   RunResult,
+  AgentPlan,
+  AgentRegistryEntry,
+  ModelRegistryModel,
+  MemorySearchResult,
+  MemoryStatus,
+  SearchLogRecord,
+  SearchToolsStatus,
+  OpenRouterDiscoverySummary,
 } from "../types";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
@@ -404,7 +412,14 @@ export async function submitOrchestration(command: string): Promise<Orchestratio
     run_type: "prototype_build",
     allow_file_writes: true,
     allow_safe_commands: true,
+    allow_web_search: false,
     allow_ceo_live: false,
+    use_memory: true,
+    use_real_coding_agent: true,
+    allow_live_coding_model_call: false,
+    real_coding_dry_run: false,
+    real_coding_model: "moonshotai/kimi-k2.7-code",
+    real_coding_max_files: 12,
     max_cost_usd: 0.25,
   });
 
@@ -478,6 +493,49 @@ export async function getRunCommands(runId: string): Promise<CommandResult[]> {
 
 export async function getRunArtifacts(runId: string): Promise<ArtifactRecord[]> {
   return request(`/api/runs/${encodeURIComponent(runId)}/artifacts`);
+}
+
+export async function getRunAgentPlan(runId: string): Promise<{ run_id: string; agent_plan: AgentPlan | Record<string, unknown> }> {
+  return request(`/api/runs/${encodeURIComponent(runId)}/agent-plan`);
+}
+
+export async function getRunModelSelection(runId: string): Promise<{ run_id: string; model_selection: Record<string, any> }> {
+  return request(`/api/runs/${encodeURIComponent(runId)}/model-selection`);
+}
+
+export async function getAgentRegistry(): Promise<{ agents: AgentRegistryEntry[] }> {
+  return request("/api/agent-registry/agents");
+}
+
+export async function getModelRegistryModels(): Promise<{ models: ModelRegistryModel[] }> {
+  return request("/api/model-registry/models");
+}
+
+export async function getModelRegistrySummary(): Promise<Record<string, any>> {
+  return request("/api/model-registry/summary");
+}
+
+export async function getSearchToolsStatus(): Promise<SearchToolsStatus> {
+  return request("/api/search-tools/status");
+}
+
+export async function getRecentSearchLogs(limit: number = 100): Promise<SearchLogRecord[]> {
+  const payload = await request<{ logs: SearchLogRecord[] }>(`/api/search-tools/logs/recent?limit=${limit}`);
+  return payload.logs;
+}
+
+export async function getMemoryStatus(): Promise<MemoryStatus> {
+  return request<MemoryStatus>("/api/memory/status");
+}
+
+export async function searchProjectMemory(projectId: string, query: string, agentId: string, runType: string): Promise<MemorySearchResult[]> {
+  const params = new URLSearchParams({ q: query, agent_id: agentId, run_type: runType });
+  const payload = await request<{ results: MemorySearchResult[] }>(`/api/memory/projects/${encodeURIComponent(projectId)}/search?${params.toString()}`);
+  return payload.results;
+}
+
+export async function getOpenRouterDiscoverySummary(): Promise<OpenRouterDiscoverySummary> {
+  return request("/api/model-registry/discovery/openrouter/summary");
 }
 
 function isApprovalRequiredResponse(run: RunStartResponse): run is import("../types").ApprovalRequiredResponse {

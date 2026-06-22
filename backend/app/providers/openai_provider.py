@@ -20,6 +20,7 @@ class OpenAIProvider(BaseProvider):
         max_output_tokens: int = 300,
         temperature: float = 0.2,
         service_tier: str | None = None,
+        response_format: dict | None = None,
     ) -> ProviderResponse:
         settings = get_settings()
         started_at = perf_counter()

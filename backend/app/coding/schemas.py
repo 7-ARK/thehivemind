@@ -64,6 +64,12 @@ class CodingFileChange(BaseModel):
     reason: str
     change_type: Literal["create", "modify", "delete"] = "modify"
     new_content: str | None = None
+    edits: list["ExactTextEdit"] = Field(default_factory=list)
+
+
+class ExactTextEdit(BaseModel):
+    old_text: str
+    new_text: str
 
 
 class ProposedPatch(BaseModel):
@@ -96,12 +102,23 @@ class RealCodingAgentResult(BaseModel):
     actual_provider: str
     selected_model: str
     fallback_model: str | None = None
+    fallback_model_used: bool = False
     live_call_made: bool = False
     mock_simulated: bool = False
     dry_run: bool = False
     hardcoded_fallback_used: bool = False
     patch_applied: bool = False
     no_change_reason: str | None = None
+    parse_error: str | None = None
+    parser_route: str | None = None
+    parser_route_attempted: list[str] = Field(default_factory=list)
+    provider_response_diagnostic: dict[str, Any] | None = None
+    requested_max_output_tokens: int | None = None
+    response_format_requested: str | None = None
+    provider_response_finish_reason: str | None = None
+    actual_output_tokens: int | None = None
+    reasoning_tokens: int | None = None
+    content_source: str | None = None
     repair_attempts: int = 0
     task_type: TaskType
     allowed_user_file_scope: AllowedUserFileScope = Field(default_factory=AllowedUserFileScope)

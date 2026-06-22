@@ -20,13 +20,14 @@ class PatchApplier:
         task_type: TaskType,
         file_scope: AllowedUserFileScope | None = None,
         max_output_files: int | None = None,
+        project_id: str | None = None,
     ) -> PatchValidationResult:
         violations: list[str] = []
         warnings: list[str] = []
         output_limit = max_output_files or self.settings.real_coding_max_output_files
         if len(patch.files_to_change) > output_limit:
             violations.append(f"Too many output files: {len(patch.files_to_change)} > {output_limit}.")
-        total_bytes = sum(len((change.new_content or "").encode("utf-8")) for change in patch.files_to_change)
+        total_bytes = sum(len((change.new_content or "").encode("utf-8")) + sum(len(edit.new_text.encode("utf-8")) for edit in change.edits) for change in patch.files_to_change)
         if total_bytes > self.settings.real_coding_max_patch_bytes:
             violations.append(f"Patch bytes exceed REAL_CODING_MAX_PATCH_BYTES={self.settings.real_coding_max_patch_bytes}.")
         seen = set()
@@ -47,10 +48,24 @@ class PatchApplier:
                     violations.append(f"{path}: {scope_reason}")
             if change.change_type == "delete":
                 violations.append(f"{path}: delete operations are not enabled in Real Coding Agent v1.")
-            if change.new_content is None:
-                violations.append(f"{path}: new_content is required for v1 full-file replacement.")
-            elif contains_secret_like_text(change.new_content):
+            if change.new_content is None and not change.edits:
+                violations.append(f"{path}: new_content or exact edits are required.")
+            elif change.new_content is not None and contains_secret_like_text(change.new_content):
                 violations.append(f"{path}: proposed content appears to contain a secret or credential marker.")
+            for edit in change.edits:
+                if not edit.old_text:
+                    violations.append(f"{path}: old_text is required for exact edits.")
+                if contains_secret_like_text(edit.new_text):
+                    violations.append(f"{path}: proposed edit appears to contain a secret or credential marker.")
+            if change.edits and project_id:
+                target = self.manager.resolve(project_id, path)
+                before = target.read_text(encoding="utf-8") if target.exists() else ""
+                for edit in change.edits:
+                    count = before.count(edit.old_text)
+                    if count == 0:
+                        violations.append(f"{path}: old_text was not found exactly once for exact edit.")
+                    elif count > 1:
+                        violations.append(f"{path}: old_text is ambiguous for exact edit; found {count} matches.")
             if path.endswith(("requirements.txt", "package.json", "pyproject.toml")):
                 warnings.append(f"{path}: dependency/config change requires human review before installs.")
         return PatchValidationResult(accepted=not violations, violations=violations, warnings=warnings)
@@ -71,7 +86,7 @@ class PatchApplier:
             path = change.path.replace("\\", "/")
             target = self.manager.resolve(project_id, path)
             before = target.read_text(encoding="utf-8") if target.exists() else ""
-            after = change.new_content or ""
+            after = _apply_exact_edits(before, change) if change.edits else (change.new_content or "")
             diff = unified_diff(before, after, path)
             operation = "updated" if target.exists() else "created"
             applied.append(
@@ -113,3 +128,10 @@ def changed_paths_from_patch(patch: ProposedPatch | None) -> list[str]:
     if not patch:
         return []
     return [change.path.replace("\\", "/") for change in patch.files_to_change]
+
+
+def _apply_exact_edits(content: str, change) -> str:
+    updated = content
+    for edit in change.edits:
+        updated = updated.replace(edit.old_text, edit.new_text, 1)
+    return updated

@@ -3,6 +3,8 @@ import UsageDashboard from "./components/usage/UsageDashboard";
 import Orchestrator from "./components/Orchestrator";
 import ProjectWorkspacePanel from "./components/projects/ProjectWorkspacePanel";
 import RunDetailViewer from "./components/runs/RunDetailViewer";
+import RegistryPanel from "./components/RegistryPanel";
+import MemoryPanel from "./components/memory/MemoryPanel";
 import { getHealth, getProviderStatus } from "./lib/api";
 import {
   LayoutDashboard,
@@ -297,7 +299,9 @@ export default function App() {
             />
           )}
 
-          {activeTab === "agents" && (
+          {activeTab === "agents" && <RegistryPanel />}
+
+          {false && activeTab === "agents" && (
             <div id="agents-tab" className="space-y-6">
               <div className="border-b border-[#2c2e33] pb-5">
                 <h1 className="text-xl font-bold tracking-tight text-[#e9ecef] flex items-center gap-2">
@@ -394,46 +398,7 @@ export default function App() {
             </div>
           )}
 
-          {activeTab === "memory" && (
-            <div id="memory-tab" className="space-y-6 max-w-2xl mx-auto my-6">
-              <div className="bg-[#20c997]/5 border border-[#20c997]/25 rounded-lg p-6 relative overflow-hidden">
-                <div className="absolute right-0 top-0 translate-x-12 -translate-y-12 w-24 h-24 rounded-full bg-[#20c997]/10 blur-[40px] pointer-events-none" />
-                <h3 className="text-sm font-bold text-[#20c997] flex items-center gap-1.5 font-mono uppercase mb-2">
-                  <Brain className="w-4 h-4 animate-pulse text-[#20c997]" />
-                  Memory UI Placeholder
-                </h3>
-                <p className="text-xs text-[#e9ecef] leading-relaxed font-sans font-medium">
-                  Agents retrieve only the context needed for the active command.
-                </p>
-                <p className="text-[11px] text-[#909296] font-mono mt-2 leading-relaxed">
-                  This panel is a placeholder until the real memory browser is connected.
-                </p>
-              </div>
-
-              <div className="bg-[#1a1b1e] border border-[#2c2e33] rounded-lg p-5 space-y-4">
-                <h4 className="text-xs font-semibold text-[#909296] tracking-wider uppercase font-mono">Active Memory Corpus</h4>
-                
-                <div className="space-y-2 text-xs">
-                  {[
-                    "Greek yogurt website prototype created",
-                    "Order status page added in the persistent project workspace",
-                    "Safe command validation passed with python -m py_compile",
-                    "No external actions, deployments, or package installs performed",
-                  ].map((doc, idx) => (
-                    <div key={idx} className="bg-[#141517] border border-[#2c2e33] p-3 rounded flex items-center justify-between text-[#e9ecef]">
-                      <div className="flex items-center gap-2.5">
-                        <Database className="w-3.5 h-3.5 text-[#20c997] shrink-0" />
-                        <span className="font-sans text-xs">{doc}</span>
-                      </div>
-                      <span className="text-[9px] text-[#909296] font-mono font-bold select-none uppercase tracking-wide">
-                        ACTIVE INDEX
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
+          {activeTab === "memory" && <MemoryPanel />}
         </main>
       </div>
 

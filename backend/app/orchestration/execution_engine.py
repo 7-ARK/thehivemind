@@ -28,7 +28,7 @@ from app.memory.current_state import update_current_state
 from app.memory.embedding_memory import EmbeddingMemory
 from app.memory.context_packet import build_context_packet, format_context_packet
 from app.memory.memory_ingestor import MemoryIngestor
-from app.memory.retrieval import retrieve_memory
+from app.memory.retrieval import disabled_memory_summary, retrieve_memory
 from app.memory.vector_memory import LocalVectorMemory
 from app.orchestration.agent_context import AgentExecutionContext
 from app.orchestration.task_packet import TaskPacket
@@ -190,7 +190,7 @@ class ExecutionEngine:
         run_id = str(uuid.uuid4())
         started_at = datetime.now(UTC)
         max_cost = min(max_cost_usd or self.settings.max_cost_per_run_usd, self.settings.max_cost_per_run_usd)
-        memory = retrieve_memory(command, project_id=project_id, run_type=run_type) if use_memory else retrieve_memory("", project_id=project_id, run_type=run_type)
+        memory = retrieve_memory(command, project_id=project_id, run_type=run_type) if use_memory else disabled_memory_summary()
         if run_type == "provider_test":
             return await self._execute_provider_test(
                 command=command,
@@ -1043,6 +1043,7 @@ class ExecutionEngine:
         if metrics.total_estimated_cost_usd > max_cost:
             raise HTTPException(status_code=400, detail=f"Estimated run cost ${metrics.total_estimated_cost_usd:.6f} exceeds request max_cost_usd=${max_cost:.2f}.")
 
+        run_status = "failed" if real_coding_result and real_coding_result.live_call_made and not real_coding_result.validation.accepted else "completed"
         created_files = [entry.path for entry in file_entries if entry.operation == "created"]
         edited_files = [entry.path for entry in file_entries if entry.operation == "updated"]
         command_success = all(result.allowed and result.exit_code == 0 for result in command_results)
@@ -1081,7 +1082,7 @@ class ExecutionEngine:
                 "run_id": run_id,
                 "project_id": active_project_id,
                 "run_type": "website_update",
-                "status": "completed",
+                "status": run_status,
                 "selected_workflow": agent_plan.selected_workflow,
                 "agent_plan": agent_plan.model_dump(),
                 "model_selection": selected_models,
@@ -1127,8 +1128,8 @@ class ExecutionEngine:
                     name="Real Coding Agent" if real_coding_result and real_coding_result.used and not real_coding_result.hardcoded_fallback_used else "Website Agent",
                     role="Reusable coding/file editing" if real_coding_result and real_coding_result.used and not real_coding_result.hardcoded_fallback_used else "Template fallback for website project files",
                     assigned_model=(real_coding_result.selected_model if real_coding_result else website_model),
-                    status="completed",
-                    latest_action="Applied real coding patch" if real_coding_result and real_coding_result.patch_applied else ("Prepared dry-run patch" if real_coding_result and real_coding_result.dry_run else "Updated website files"),
+                    status="blocked" if real_coding_result and real_coding_result.parse_error else "completed",
+                    latest_action="Applied real coding patch" if real_coding_result and real_coding_result.patch_applied else ("Prepared dry-run patch" if real_coding_result and real_coding_result.dry_run else "Rejected invalid provider patch" if real_coding_result and real_coding_result.parse_error else "Updated website files"),
                     completed_work=(real_coding_result.files_changed if real_coding_result else created_files + edited_files),
                 ),
                 AgentInfo(name="QA Agent", role="Review and quality control", assigned_model=qa_model, status="completed", latest_action="Reviewed website update", completed_work=["Reviewed file changes and command logs."]),
@@ -1140,7 +1141,7 @@ class ExecutionEngine:
             mode=mode,
             project_id=active_project_id,
             run_type="website_update",
-            status="completed",
+            status=run_status,
             started_at=started_at,
             completed_at=completed_at,
             events=events,
@@ -1156,7 +1157,7 @@ class ExecutionEngine:
                     f"Actual provider: {real_coding_result.actual_provider if real_coding_result else 'n/a'}.",
                     f"Selected coding model: {real_coding_result.selected_model if real_coding_result else 'n/a'}.",
                     f"Prompt file scope: {real_coding_result.allowed_user_file_scope.scope_type if real_coding_result else 'n/a'}.",
-                    "Ran QA after approved file changes." if real_coding_result and real_coding_result.patch_applied else "Ran QA after patch validation.",
+                    self._real_coding_qa_report_line(real_coding_result),
                     "Logged model selection reasons and Real Coding Agent behavior.",
                 ],
                 recommended_next_actions=["Review files in Project Workspace.", "Run the site locally before any public use."],
@@ -1713,14 +1714,27 @@ class ExecutionEngine:
         return self._finalize_run(record)
 
     def _finalize_run(self, record: RunRecord) -> RunRecord:
+        self._apply_memory_control_summary(record)
         self._save_run(record)
         if self.settings.memory_ingest_after_run:
             result = MemoryIngestor(self.settings).ingest_record(record)
             memory_ids = result.get("memory_ids", [])
             if memory_ids:
                 record.memory_updates = [*record.memory_updates, *memory_ids]
+                self._apply_memory_control_summary(record)
                 self._save_run(record)
         return record
+
+    def _apply_memory_control_summary(self, record: RunRecord) -> None:
+        use_memory = bool(getattr(self, "_use_memory_for_current_run", True))
+        record.usage_summary["memory_control"] = {
+            "use_memory": use_memory,
+            "retrieval_enabled": use_memory,
+            "retrieved_count": len(record.memory.retrieved_snippets),
+            "ingestion_after_run_enabled": self.settings.memory_ingest_after_run,
+            "ingested_after_run_count": len(record.memory_updates),
+            "ingestion_note": "Memory ingestion stores this run for future runs; it does not mean retrieved memory was used in this run.",
+        }
 
     def _build_agents(self, *, allow_ceo_live: bool, mode: str) -> dict[str, Any]:
         return {
@@ -2155,6 +2169,9 @@ Approved for local review only. Human approval is still required before public u
         if result and result.dry_run:
             return "- No user-facing file changes were applied because dry run was enabled. The proposed patch was validated but not applied."
         if result and not result.validation.accepted:
+            if result.live_call_made:
+                reason = "; ".join(result.validation.violations) or "The live coding provider output was rejected before patch application."
+                return f"- No user-facing file changes were applied because the Real Coding Agent provider response could not be validated.\n- Reason: {reason}"
             return "- No user-facing file changes were applied because the proposed patch was rejected by validation."
         if result and result.no_change_reason:
             return f"- No user-facing file changes were applied because {result.no_change_reason}"
@@ -2580,6 +2597,19 @@ Approved for local review only. Human approval is still required before public u
                 agent_name="Real Coding Agent",
                 summary="Patch validation and command validation result.",
             ),
+        ]
+        if result.provider_response_diagnostic:
+            artifacts.append(
+                self.artifacts.save_text(
+                    run_id=run_id,
+                    name="coding_provider_response_diagnostic.json",
+                    artifact_type="json",
+                    content=json.dumps(result.provider_response_diagnostic, indent=2),
+                    agent_name="Real Coding Agent",
+                    summary="Safe provider response diagnostics for invalid live coding output.",
+                )
+            )
+        artifacts.append(
             self.artifacts.save_text(
                 run_id=run_id,
                 name="real_coding_agent_report.md",
@@ -2587,8 +2617,8 @@ Approved for local review only. Human approval is still required before public u
                 content=self._real_coding_report(result),
                 agent_name="Real Coding Agent",
                 summary="Human-readable Real Coding Agent report.",
-            ),
-        ]
+            )
+        )
         return artifacts
 
     def _real_coding_plan_markdown(self, result: RealCodingAgentResult) -> str:
@@ -2598,8 +2628,10 @@ Approved for local review only. Human approval is still required before public u
 - Selected model: {result.selected_model}
 - Provider: {result.actual_provider}
 - Fallback model: {result.fallback_model or "none"}
+- Fallback used: {result.fallback_model_used}
 - Live call made: {result.live_call_made}
 - Mock simulated: {result.mock_simulated}
+- Requested max output tokens: {result.requested_max_output_tokens or "n/a"}
 - GPT-5.5 not used: true
 
 ## Scope
@@ -2608,6 +2640,8 @@ Approved for local review only. Human approval is still required before public u
 - Files selected: {", ".join(result.files_selected) or "none"}
 - Dry run: {result.dry_run}
 - Template fallback used: {result.hardcoded_fallback_used}
+- Parser route: {result.parser_route or "n/a"}
+- Parse error: {result.parse_error or "none"}
 """
 
     def _real_coding_report(self, result: RealCodingAgentResult) -> str:
@@ -2620,12 +2654,16 @@ Approved for local review only. Human approval is still required before public u
 - Actual provider: {result.actual_provider}
 - Selected model: {result.selected_model}
 - Fallback model: {result.fallback_model or "none"}
+- Fallback model used: {result.fallback_model_used}
 - Live call made: {result.live_call_made}
 - Mock simulated: {result.mock_simulated}
 - Dry run: {result.dry_run}
 - Patch applied: {result.patch_applied}
 - No change reason: {result.no_change_reason or "n/a"}
 - Hardcoded fallback used: {result.hardcoded_fallback_used}
+- Requested max output tokens: {result.requested_max_output_tokens or "n/a"}
+- Parser route: {result.parser_route or "n/a"}
+- Parse error: {result.parse_error or "none"}
 
 ## Files
 - Inspected: {", ".join(result.files_inspected[:20]) or "none"}
@@ -2685,7 +2723,21 @@ Approved for local review only. Human approval is still required before public u
             return "Real Coding Agent prepared and validated a dry-run patch without applying file changes."
         if result.patch_applied:
             return "Real Coding Agent inspected files, generated a structured patch, validated it, and applied approved file changes."
+        if result.parse_error:
+            return f"No user-facing file changes were applied because the live coding provider output was rejected before patch application. Reason: {result.parse_error}."
+        if result.live_call_made and not result.validation.accepted:
+            reason = "; ".join(result.validation.violations) or "patch validation rejected the proposed change"
+            return f"No user-facing file changes were applied because the live coding provider output was rejected before patch application. Reason: {reason}."
         return "Real Coding Agent inspected files and validated the proposed patch without applying changes."
+
+    def _real_coding_qa_report_line(self, result: RealCodingAgentResult | None) -> str:
+        if result and result.patch_applied:
+            return "Ran QA after approved file changes."
+        if result and result.validation.accepted and result.dry_run:
+            return "Ran QA after dry-run patch validation. No file changes were applied because dry-run mode was enabled."
+        if result and not result.validation.accepted:
+            return "Ran QA after patch rejection. No file changes were applied because patch validation failed."
+        return "Ran QA after patch validation."
 
     def _prototype_final_report(
         self,

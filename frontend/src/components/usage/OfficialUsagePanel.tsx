@@ -40,10 +40,11 @@ export default function OfficialUsagePanel({ summary, loading, syncing, onSync }
         <div className="text-xs text-[#909296]">Loading official usage status...</div>
       ) : (
         <>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
             <StatusCard provider="OpenAI official usage sync" status={statuses.openai} configuredLabel="Admin key" />
             <StatusCard provider="OpenRouter credits sync" status={statuses.openrouter} configuredLabel="Management key" />
             <StatusCard provider="Google BigQuery billing sync" status={statuses.google} configuredLabel="Credentials" />
+            <StatusCard provider="Exa API-key usage sync" status={statuses.exa} configuredLabel="Service key + key ID" />
           </div>
 
           <div className="overflow-x-auto border border-[#2c2e33] rounded">
@@ -87,7 +88,12 @@ export default function OfficialUsagePanel({ summary, loading, syncing, onSync }
 }
 
 function StatusCard({ provider, status, configuredLabel }: { provider: string; status?: OfficialUsageProviderStatus; configuredLabel: string }) {
-  const configured = Boolean(status?.admin_key_configured ?? status?.management_key_configured ?? status?.credentials_configured);
+  const configured = Boolean(
+    status?.admin_key_configured ??
+      status?.management_key_configured ??
+      status?.credentials_configured ??
+      (status?.service_key_configured && status?.api_key_id_configured),
+  );
   const enabled = Boolean(status?.enabled);
   const ok = status?.status === "ok" || status?.status === "not_synced";
 
@@ -142,6 +148,7 @@ function labelProvider(provider: string): string {
   if (provider === "openai") return "OpenAI";
   if (provider === "openrouter") return "OpenRouter";
   if (provider === "google") return "Google/Gemini";
+  if (provider === "exa") return "Exa";
   return provider;
 }
 
@@ -158,5 +165,6 @@ function formatMoney(value?: number | null): string {
 function officialScopeLabel(provider: string, value?: number | null): string {
   if (value == null) return "not available from provider yet";
   if (provider === "openrouter") return "latest account balance snapshot";
+  if (provider === "exa") return "official Exa API-key billing";
   return "official provider billing/export";
 }

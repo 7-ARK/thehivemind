@@ -39,3 +39,13 @@ def retrieve_memory(query: str, project_id: str | None = None, agent_id: str = "
         retrieved_snippets=snippets,
         vector_store_path=str(settings.memory_path),
     )
+
+
+def disabled_memory_summary() -> MemorySummary:
+    settings = get_settings()
+    return MemorySummary(
+        core_memory=get_core_memory(),
+        current_state=get_current_state(),
+        retrieved_snippets=[],
+        vector_store_path=str(settings.memory_path),
+    )

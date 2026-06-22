@@ -55,17 +55,25 @@ def estimate_cost_usd(model: str, input_tokens: int, output_tokens: int) -> floa
     return estimate_cost(model, input_tokens, output_tokens).estimated_cost_usd
 
 
-def assert_call_budget(model: str, input_tokens: int, output_tokens: int, service_tier: str | None = None) -> CostEstimate:
+def assert_call_budget(
+    model: str,
+    input_tokens: int,
+    output_tokens: int,
+    service_tier: str | None = None,
+    max_output_tokens_per_call: int | None = None,
+) -> CostEstimate:
     settings = get_settings()
+    output_limit = max_output_tokens_per_call or settings.max_output_tokens_per_call
     if input_tokens > settings.max_input_tokens_per_call:
         raise HTTPException(
             status_code=400,
             detail=f"Input token estimate {input_tokens} exceeds MAX_INPUT_TOKENS_PER_CALL={settings.max_input_tokens_per_call}.",
         )
-    if output_tokens > settings.max_output_tokens_per_call:
+    if output_tokens > output_limit:
+        label = "MAX_OUTPUT_TOKENS_PER_CALL" if max_output_tokens_per_call is None else "configured output token limit"
         raise HTTPException(
             status_code=400,
-            detail=f"Requested output tokens {output_tokens} exceeds MAX_OUTPUT_TOKENS_PER_CALL={settings.max_output_tokens_per_call}.",
+            detail=f"Requested output tokens {output_tokens} exceeds {label}={output_limit}.",
         )
     estimate = estimate_cost(model, input_tokens, output_tokens, service_tier=service_tier)
     if estimate.estimated_cost_usd > settings.max_cost_per_call_usd:
