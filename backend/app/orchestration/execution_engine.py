@@ -17,6 +17,9 @@ from app.agents.model_selector_agent import ModelSelectorAgent
 from app.agents.operations_agent import OperationsAgent
 from app.agents.qa_agent import QAAgent
 from app.artifacts.artifact_store import ArtifactStore
+from app.coding.coding_agent_runner import RealCodingAgentRunner
+from app.coding.coding_policy import is_focused_website_update, prompt_file_scope
+from app.coding.schemas import PatchValidationResult, RealCodingAgentResult
 from app.core.config import Settings, get_settings
 from app.core.cost_estimator import assert_run_budget, estimate_cost_usd, estimate_tokens
 from app.core.model_registry import get_model_metadata
@@ -74,6 +77,12 @@ def _agent_id_from_name(agent_name: str) -> str:
     return agent_name.lower().replace(" ", "_")
 
 
+def _normalized_run_type(command: str, requested_run_type: str) -> str:
+    if requested_run_type in {"prototype_build", "continuation", "business_launch_plan"} and is_focused_website_update(command):
+        return "website_update"
+    return requested_run_type
+
+
 async def execute_run(
     command: str,
     mode: str = "mock",
@@ -84,6 +93,11 @@ async def execute_run(
     allow_safe_commands: bool = False,
     allow_web_search: bool = False,
     use_memory: bool = True,
+    use_real_coding_agent: bool = True,
+    allow_live_coding_model_call: bool = False,
+    real_coding_dry_run: bool = False,
+    real_coding_model: str | None = None,
+    real_coding_max_files: int | None = None,
     max_cost_usd: float | None = None,
 ) -> RunResult:
     return await ExecutionEngine().execute_run(
@@ -96,6 +110,11 @@ async def execute_run(
         allow_safe_commands=allow_safe_commands,
         allow_web_search=allow_web_search,
         use_memory=use_memory,
+        use_real_coding_agent=use_real_coding_agent,
+        allow_live_coding_model_call=allow_live_coding_model_call,
+        real_coding_dry_run=real_coding_dry_run,
+        real_coding_model=real_coding_model,
+        real_coding_max_files=real_coding_max_files,
         max_cost_usd=max_cost_usd,
     )
 
@@ -152,9 +171,15 @@ class ExecutionEngine:
         allow_safe_commands: bool = False,
         allow_web_search: bool = False,
         use_memory: bool = True,
+        use_real_coding_agent: bool = True,
+        allow_live_coding_model_call: bool = False,
+        real_coding_dry_run: bool = False,
+        real_coding_model: str | None = None,
+        real_coding_max_files: int | None = None,
         max_cost_usd: float | None = None,
     ) -> RunRecord:
         self._use_memory_for_current_run = use_memory
+        run_type = _normalized_run_type(command, run_type)
         if mode not in {"mock", "live"}:
             raise HTTPException(status_code=400, detail="mode must be 'mock' or 'live'.")
         if mode == "live":
@@ -199,6 +224,11 @@ class ExecutionEngine:
                 run_id=run_id,
                 started_at=started_at,
                 memory=memory,
+                use_real_coding_agent=use_real_coding_agent,
+                allow_live_coding_model_call=allow_live_coding_model_call,
+                real_coding_dry_run=real_coding_dry_run,
+                real_coding_model=real_coding_model,
+                real_coding_max_files=real_coding_max_files,
             )
         if run_type in {"prototype_build", "continuation"}:
             return await self._execute_prototype_build(
@@ -476,6 +506,15 @@ class ExecutionEngine:
         research_model = _selected_model_id(selected_models, "research_agent", self.settings.cheap_search_worker_model)
         qa_model = _selected_model_id(selected_models, "qa_agent", self.settings.cheap_worker_model)
         provider_id = (agent_plan.selected_search_provider or {}).get("id") if isinstance(agent_plan.selected_search_provider, dict) else None
+        memory_packet = self._memory_packet_for_agent(
+            agent_id="research_agent",
+            project_id=active_project_id,
+            run_id=run_id,
+            run_type="research_only",
+            task=command,
+            current_command=command,
+            mode=mode,
+        )
         search_result = await self._run_research_search(
             command=command,
             mode=mode,
@@ -485,7 +524,7 @@ class ExecutionEngine:
             project_id=project_id,
         )
         sources = search_result.sources
-        research_text = self._research_only_report(command, agent_plan.model_dump(), [source.model_dump() for source in sources], search_result.brief)
+        research_text = self._research_only_report(command, agent_plan.model_dump(), [source.model_dump() for source in sources], search_result.brief, memory_packet=memory_packet, search_result=search_result)
         artifacts = []
         agent_plan_artifact = self.artifacts.save_text(
             run_id=run_id,
@@ -534,7 +573,7 @@ class ExecutionEngine:
                 artifact_id=research_artifact.id,
             )
         ]
-        qa_text = self._prototype_qa_review(command, research_text, [], file_changes_count=0, search_result=search_result)
+        qa_text = self._prototype_qa_review(command, research_text, [], file_changes_count=0, search_result=search_result, memory_packet=memory_packet, workflow="research_only")
         qa_output = await self._run_step(
             run_id=run_id,
             command=command,
@@ -724,6 +763,11 @@ class ExecutionEngine:
         run_id: str,
         started_at: datetime,
         memory,
+        use_real_coding_agent: bool = True,
+        allow_live_coding_model_call: bool = False,
+        real_coding_dry_run: bool = False,
+        real_coding_model: str | None = None,
+        real_coding_max_files: int | None = None,
     ) -> RunRecord:
         if not allow_file_writes:
             raise HTTPException(status_code=403, detail="website_update requires allow_file_writes=true unless the prompt restricted file writes.")
@@ -770,6 +814,16 @@ class ExecutionEngine:
         artifact_records.extend([agent_plan_artifact, model_selection_artifact])
 
         research_context = ""
+        search_result: SearchResultPayload | None = None
+        memory_packet = self._memory_packet_for_agent(
+            agent_id="website_agent",
+            project_id=active_project_id,
+            run_id=run_id,
+            run_type="website_update",
+            task=command,
+            current_command=command,
+            mode=mode,
+        )
         if any(agent.agent_id == "research_agent" for agent in agent_plan.selected_agents):
             provider_id = (agent_plan.selected_search_provider or {}).get("id") if isinstance(agent_plan.selected_search_provider, dict) else None
             search_result = await self._run_research_search(
@@ -781,7 +835,7 @@ class ExecutionEngine:
                 project_id=active_project_id,
             )
             sources = search_result.sources
-            research_context = self._research_only_report(command, agent_plan.model_dump(), [source.model_dump() for source in sources], search_result.brief)
+            research_context = self._research_only_report(command, agent_plan.model_dump(), [source.model_dump() for source in sources], search_result.brief, memory_packet=memory_packet, search_result=search_result)
             research_artifact = self.artifacts.save_text(
                 run_id=run_id,
                 name="research_brief.md",
@@ -814,8 +868,63 @@ class ExecutionEngine:
                 )
             )
 
-        website_agent = FileBuilderAgent("Website Agent", "Updates website project files", website_model)
-        file_entries = website_agent.build_project_greek_yogurt_site(active_project_id, run_id, command)
+        homepage_copy_task = self._is_homepage_copy_task(command)
+        real_coding_result = None
+        command_results: list[CommandResult] = []
+        if use_real_coding_agent and self.settings.enable_real_coding_agent:
+            coding_model = real_coding_model or _selected_model_id(selected_models, "website_agent", self.settings.real_coding_agent_model)
+            selected_models["real_coding_agent"] = {
+                "selected_model_id": coding_model,
+                "provider": "openrouter" if mode == "live" else "mock",
+                "fallback_model_id": self.settings.real_coding_agent_fallback_model,
+                "reason": "Real Coding Agent uses the configured OpenRouter coding worker. GPT-5.5 remains CEO-gated and is not used for coding worker tasks.",
+                "live_call_made": mode == "live" and allow_live_coding_model_call,
+                "mock_simulated": mode == "mock",
+            }
+            real_coding_result, file_entries, command_results, coding_event = await RealCodingAgentRunner(self.settings).run(
+                project_id=active_project_id,
+                run_id=run_id,
+                command=command,
+                mode=mode,
+                allow_safe_commands=allow_safe_commands,
+                memory_packet=memory_packet,
+                model_id=coding_model,
+                fallback_model_id=self.settings.real_coding_agent_fallback_model,
+                allow_live_coding_model_call=allow_live_coding_model_call,
+                dry_run=real_coding_dry_run,
+                max_files=real_coding_max_files,
+            )
+            artifact_records.extend(self._save_real_coding_artifacts(run_id, real_coding_result))
+            events.append(coding_event)
+        else:
+            website_agent = FileBuilderAgent("Website Agent", "Updates website project files", website_model)
+            if homepage_copy_task:
+                file_entries = website_agent.build_project_greek_yogurt_homepage_copy_update(
+                    active_project_id,
+                    run_id,
+                    command,
+                    memory_themes=self._memory_theme_lines(memory_packet),
+                )
+            else:
+                file_entries = website_agent.build_project_greek_yogurt_site(active_project_id, run_id, command)
+            real_coding_result = self._template_fallback_result(command, website_model, [entry.path for entry in file_entries], homepage_copy_task)
+            artifact_records.extend(self._save_real_coding_artifacts(run_id, real_coding_result))
+
+        scope_plan_text = self._website_scope_plan(
+            command,
+            homepage_copy_task,
+            changed_files=[entry.path for entry in file_entries],
+            system_metadata_files=["project_state.md", "manifest.json"],
+        )
+        scope_plan_artifact = self.artifacts.save_text(
+            run_id=run_id,
+            name="website_scope_plan.md",
+            artifact_type="markdown",
+            content=scope_plan_text,
+            agent_name="Real Coding Agent" if real_coding_result and real_coding_result.used and not real_coding_result.hardcoded_fallback_used else "Website Agent",
+            summary="Website file-scope plan for the requested update.",
+        )
+        artifact_records.append(scope_plan_artifact)
         workspace_artifacts = []
         for entry in file_entries:
             artifact = self.artifacts.register_file(
@@ -823,31 +932,33 @@ class ExecutionEngine:
                 name=entry.path,
                 artifact_type="project_file",
                 path=str(project_root / entry.path),
-                agent_name="Website Agent",
+                agent_name="Real Coding Agent" if real_coding_result and real_coding_result.used and not real_coding_result.hardcoded_fallback_used else "Website Agent",
                 summary=entry.after_summary,
             )
             workspace_artifacts.append(artifact)
             artifact_records.append(artifact)
+        memory_usage_text = self._website_memory_used_text(memory_packet, search_result)
         website_text = "\n".join(f"- {entry.operation}: {entry.path} ({entry.size_bytes} bytes)" for entry in file_entries)
-        events.append(
-            self._manual_step(
-                run_id=run_id,
-                mode=mode,
-                agent_name="Website Agent",
-                agent_role="Updates website project files",
-                model=website_model,
-                request_type="website_update",
-                input_text=command,
-                output_text=website_text,
-                action_summary="Updated website project files",
-                artifact_id=workspace_artifacts[0].id if workspace_artifacts else model_selection_artifact.id,
+        website_text = f"{memory_usage_text}\n\n## File Updates\n{website_text}"
+        if not (real_coding_result and real_coding_result.used and not real_coding_result.hardcoded_fallback_used):
+            events.append(
+                self._manual_step(
+                    run_id=run_id,
+                    mode=mode,
+                    agent_name="Website Agent",
+                    agent_role="Template fallback for website project files",
+                    model=website_model,
+                    request_type="website_update_template_fallback",
+                    input_text=command,
+                    output_text=f"Template fallback used. No real coding model call was made.\n\n{website_text}",
+                    action_summary="Updated website project files with deterministic template fallback",
+                    artifact_id=workspace_artifacts[0].id if workspace_artifacts else model_selection_artifact.id,
+                )
             )
-        )
 
-        command_results: list[CommandResult] = []
-        if allow_safe_commands:
+        if not command_results and allow_safe_commands and file_entries:
             command_results.append(command_runner.run_project_command(active_project_id, run_id, ["python", "-m", "py_compile", "website/app.py"]))
-        else:
+        elif not command_results and not allow_safe_commands:
             command_results.append(
                 CommandResult(
                     command=["python", "-m", "py_compile", "website/app.py"],
@@ -874,16 +985,16 @@ class ExecutionEngine:
                     agent_role="Validation sandbox",
                     model=self.settings.cheap_worker_model,
                     request_type="command_validation",
-                    input_text="Validate changed website files.",
+                    input_text="Run project sanity validation after the website update. This is a general syntax check, not direct validation of unchanged HTML/JSON copy.",
                     output_text=command_text,
-                    action_summary="Validated website files with safe command runner",
+                    action_summary="Ran project sanity validation with safe command runner",
                     artifact_id=workspace_artifacts[0].id if workspace_artifacts else model_selection_artifact.id,
                 )
             command_event.status = _command_event_status(command_results)  # type: ignore[assignment]
             command_event.action_summary = "Safe command validation failed" if command_event.status == "validation_failed" else command_event.action_summary
             events.append(command_event)
 
-        qa_input = f"Agent plan:\n{agent_plan.model_dump_json(indent=2)}\n\nResearch:\n{research_context}\n\nFiles:\n{website_text}\n\nCommands:\n{command_text}"
+        qa_input = f"Agent plan:\n{agent_plan.model_dump_json(indent=2)}\n\nResearch:\n{research_context}\n\nMemory:\n{memory_usage_text}\n\nScope plan:\n{scope_plan_text}\n\nFiles:\n{website_text}\n\nCommands:\n{command_text}"
         qa_output = await self._run_step(
             run_id=run_id,
             command=command,
@@ -893,7 +1004,20 @@ class ExecutionEngine:
             model=qa_model,
             request_type="validation",
             prompt=qa_input,
-            mock_output=self._prototype_qa_review(command, qa_input, command_results, file_changes_count=len(file_entries)),
+            mock_output=self._prototype_qa_review(
+                command,
+                qa_input,
+                command_results,
+                file_changes_count=len(file_entries),
+                search_result=search_result,
+                memory_packet=memory_packet,
+                changed_paths=[entry.path for entry in file_entries],
+                system_metadata_paths=["project_state.md", "manifest.json"],
+                homepage_copy_scope=homepage_copy_task,
+                allowed_user_file_scope=real_coding_result.allowed_user_file_scope.model_dump() if real_coding_result else None,
+                workflow="website_update",
+                real_coding_result=real_coding_result,
+            ),
         )
         qa_artifact = self.artifacts.save_text(
             run_id=run_id,
@@ -973,7 +1097,7 @@ class ExecutionEngine:
         workspace_summary = WorkspaceSummary(
             root=project_manager.public_root(active_project_id),
             files_created=created_files,
-            files_edited=[*edited_files, state_entry.path] if state_entry.operation == "updated" else edited_files,
+            files_edited=edited_files,
             commands_run=command_results,
             command_success=command_success,
         )
@@ -999,7 +1123,14 @@ class ExecutionEngine:
             )
         agent_infos.extend(
             [
-                AgentInfo(name="Website Agent", role="Updates website project files", assigned_model=website_model, status="completed", latest_action="Updated website files", completed_work=created_files + edited_files),
+                AgentInfo(
+                    name="Real Coding Agent" if real_coding_result and real_coding_result.used and not real_coding_result.hardcoded_fallback_used else "Website Agent",
+                    role="Reusable coding/file editing" if real_coding_result and real_coding_result.used and not real_coding_result.hardcoded_fallback_used else "Template fallback for website project files",
+                    assigned_model=(real_coding_result.selected_model if real_coding_result else website_model),
+                    status="completed",
+                    latest_action="Applied real coding patch" if real_coding_result and real_coding_result.patch_applied else ("Prepared dry-run patch" if real_coding_result and real_coding_result.dry_run else "Updated website files"),
+                    completed_work=(real_coding_result.files_changed if real_coding_result else created_files + edited_files),
+                ),
                 AgentInfo(name="QA Agent", role="Review and quality control", assigned_model=qa_model, status="completed", latest_action="Reviewed website update", completed_work=["Reviewed file changes and command logs."]),
             ]
         )
@@ -1018,8 +1149,16 @@ class ExecutionEngine:
             metrics=metrics,
             memory=memory,
             final_output=FinalOutput(
-                summary=f"Website-only workflow updated project {active_project_id}.",
-                what_was_done=["Selected workflow: website_update.", "Updated website files only.", "Ran QA after file changes.", "Logged model selection reasons."],
+                summary=f"Real Coding Agent v1 workflow completed for project {active_project_id}.",
+                what_was_done=[
+                    "Selected workflow: website_update.",
+                    self._real_coding_final_action(real_coding_result),
+                    f"Actual provider: {real_coding_result.actual_provider if real_coding_result else 'n/a'}.",
+                    f"Selected coding model: {real_coding_result.selected_model if real_coding_result else 'n/a'}.",
+                    f"Prompt file scope: {real_coding_result.allowed_user_file_scope.scope_type if real_coding_result else 'n/a'}.",
+                    "Ran QA after approved file changes." if real_coding_result and real_coding_result.patch_applied else "Ran QA after patch validation.",
+                    "Logged model selection reasons and Real Coding Agent behavior.",
+                ],
                 recommended_next_actions=["Review files in Project Workspace.", "Run the site locally before any public use."],
                 generated_artifacts=[artifact.name for artifact in artifact_records],
             ),
@@ -1028,7 +1167,7 @@ class ExecutionEngine:
             project_workspace=project_workspace_summary,
             models_used=sorted({event.model_used for event in events}),
             project_files_created=created_files,
-            project_files_updated=[*edited_files, state_entry.path] if state_entry.operation == "updated" else edited_files,
+            project_files_updated=edited_files,
             commands_run=[result.model_dump() for result in command_results],
             usage_summary={
                 "estimated_cost_usd": metrics.total_estimated_cost_usd,
@@ -1039,6 +1178,15 @@ class ExecutionEngine:
                 "search_needed": agent_plan.search_needed,
                 "search_unavailable": agent_plan.search_unavailable,
                 "search_provider_id": (agent_plan.selected_search_provider or {}).get("id") if isinstance(agent_plan.selected_search_provider, dict) else None,
+                "user_file_changes": [*created_files, *edited_files],
+                "system_metadata_files": ["project_state.md", "manifest.json"],
+                "real_coding_agent": real_coding_result.model_dump() if real_coding_result else {},
+                "project_sanity_validation": {
+                    "safe_commands_executed": len(command_results),
+                    "commands": [result.model_dump() for result in command_results],
+                    "result": "passed" if command_success else ("not_run" if not command_results else "needs_review"),
+                    "reason": "General project sanity validation. py_compile checks website/app.py syntax and does not directly validate unchanged HTML/JSON copy.",
+                },
             },
             memory_updates=[],
             agent_plan=agent_plan.model_dump(),
@@ -1911,29 +2059,83 @@ Run Engine v1 completed a controlled, sequential workflow and saved stage output
         *,
         file_changes_count: int = 1,
         search_result: SearchResultPayload | None = None,
+        memory_packet: Any | None = None,
+        changed_paths: list[str] | None = None,
+        system_metadata_paths: list[str] | None = None,
+        homepage_copy_scope: bool = False,
+        allowed_user_file_scope: dict[str, Any] | None = None,
+        workflow: str = "prototype_build",
+        real_coding_result: RealCodingAgentResult | None = None,
     ) -> str:
         command_status = "passed" if all(result.allowed and result.exit_code == 0 for result in command_results) else "needs review"
-        file_review = (
-            "- No project files were updated because this was a research-only workflow."
-            if file_changes_count == 0
-            else "- Project files were generated or updated under the persistent project workspace.\n- Generated files include Python, Markdown, JSON, and HTML."
-        )
-        search_review = self._search_qa_wording(search_result)
-        return f"""# Prototype QA Review
+        user_changed_paths = changed_paths or []
+        metadata_paths = system_metadata_paths or []
+        scope_lines = []
+        if allowed_user_file_scope and allowed_user_file_scope.get("allowed_user_files"):
+            allowed = set(allowed_user_file_scope.get("allowed_user_files") or [])
+            violations = [path for path in user_changed_paths if path not in allowed]
+            if violations:
+                scope_lines.append(f"- File-scope failure: unauthorized user-facing files changed: {', '.join(violations)}.")
+            else:
+                scope_lines.append(f"- User-facing file changes matched prompt scope: {allowed_user_file_scope.get('scope_type')}.")
+                scope_lines.append(f"- Scope reason: {allowed_user_file_scope.get('reason')}.")
+        elif homepage_copy_scope:
+            allowed = {"website/templates/index.html", "website/data/faqs.json", "website/README.md"}
+            violations = [path for path in user_changed_paths if path not in allowed]
+            if violations:
+                scope_lines.append(f"- File-scope warning: unrelated user-facing files changed: {', '.join(violations)}.")
+            else:
+                scope_lines.append("- User-facing file changes were limited to approved website scope.")
+                scope_lines.append("- Copy-only task did not modify backend/app code, dependencies, order data, or status data.")
+        elif user_changed_paths and all(path.startswith("website/") for path in user_changed_paths):
+            scope_lines.append("- User-facing file changes were limited to website/.")
+        if metadata_paths:
+            scope_lines.append(f"- System metadata was updated separately: {', '.join(metadata_paths)}.")
+        if workflow == "website_update":
+            title = "Website Update QA Review"
+            workflow_line = "Workflow: website_update"
+            file_review = self._website_update_qa_file_review(real_coding_result, file_changes_count)
+        elif workflow == "research_only":
+            title = "Research QA Review"
+            workflow_line = "Workflow: research_only"
+            file_review = "- No user-facing project files were updated because this was a research-only workflow."
+        else:
+            title = "Prototype QA Review"
+            workflow_line = f"Workflow: {workflow}"
+            file_review = (
+                "- No project files were updated."
+                if file_changes_count == 0
+                else "- Project files were generated or updated under the persistent project workspace.\n- Generated files include Python, Markdown, JSON, and HTML."
+            )
+        search_review = self._search_qa_wording(search_result, memory_packet)
+        memory_review = self._memory_qa_wording(memory_packet, qa_input)
+        validation_reason = ""
+        if real_coding_result and not real_coding_result.validation.accepted:
+            validation_reason = f"\nReason: {'; '.join(real_coding_result.validation.violations) or 'Patch validation rejected the proposed change.'}\n"
+        return f"""# {title}
+
+{workflow_line}
 
 ## Command
 {command}
 
 ## File Review
 {file_review}
+{validation_reason}
+- User-facing file changes reviewed: {file_changes_count}
+{chr(10).join(scope_lines) if scope_lines else "- No narrow file-scope rules were triggered."}
 - No `.env` files, dependency installs, deployments, emails, or social posts were created.
 
 ## Search Review
 {search_review}
 
+## Memory Review
+{memory_review}
+
 ## Command Validation
 - Safe command status: {command_status}
-- Commands reviewed: {len(command_results)}
+- Project sanity commands reviewed: {len(command_results)}
+- Note: generic `py_compile website/app.py` checks existing Python syntax and does not directly validate unchanged HTML/JSON copy.
 
 ## Safety Review
 - File writes were limited to the approved project workspace.
@@ -1947,12 +2149,28 @@ Run Engine v1 completed a controlled, sequential workflow and saved stage output
 Approved for local review only. Human approval is still required before public use, deployment, or live customer handling.
 """
 
-    def _search_qa_wording(self, search_result: SearchResultPayload | None) -> str:
+    def _website_update_qa_file_review(self, result: RealCodingAgentResult | None, file_changes_count: int) -> str:
+        if result and result.patch_applied:
+            return "- User-facing file changes were applied within the approved scope."
+        if result and result.dry_run:
+            return "- No user-facing file changes were applied because dry run was enabled. The proposed patch was validated but not applied."
+        if result and not result.validation.accepted:
+            return "- No user-facing file changes were applied because the proposed patch was rejected by validation."
+        if result and result.no_change_reason:
+            return f"- No user-facing file changes were applied because {result.no_change_reason}"
+        if file_changes_count == 0:
+            return "- No user-facing file changes were applied because the proposed patch resulted in no necessary changes."
+        return "- User-facing file changes were applied within the approved scope."
+
+    def _search_qa_wording(self, search_result: SearchResultPayload | None, memory_packet: Any | None = None) -> str:
+        if self._memory_has_previous_sources(memory_packet):
+            if search_result is None or not search_result.research_used:
+                return "- New live search was not used. Previous memory sources from prior runs were used; do not treat memory as fresh search."
         if search_result is None:
-            return "- No search was used in this workflow."
+            return "- No search or memory sources were used."
         if search_result.error_type:
             if search_result.error_type == "search_unavailable":
-                return "- Search was unavailable/skipped. No current claims should be made."
+                return "- No new live search was run because search was unavailable/skipped. No current claims should be made from this run."
             return f"- Search failed. Use the error message and do not make current claims. Error: {search_result.error_message or search_result.error_type}"
         if search_result.mock_fixture:
             return "- Mock search fixture was used. Do not treat these as real sources."
@@ -2072,7 +2290,16 @@ Approved for local review only. Human approval is still required before public u
 
         return SyncStore(self.settings)
 
-    def _research_only_report(self, command: str, agent_plan: dict[str, Any], sources: list[dict[str, Any]], search_brief: str = "") -> str:
+    def _research_only_report(
+        self,
+        command: str,
+        agent_plan: dict[str, Any],
+        sources: list[dict[str, Any]],
+        search_brief: str = "",
+        *,
+        memory_packet: Any | None = None,
+        search_result: SearchResultPayload | None = None,
+    ) -> str:
         provider = (agent_plan.get("selected_search_provider") or {}).get("id") if isinstance(agent_plan.get("selected_search_provider"), dict) else None
         source_lines = "\n".join(f"- {source.get('title')}: {source.get('url')}" for source in sources) or "- No live sources collected."
         limitations = []
@@ -2080,7 +2307,10 @@ Approved for local review only. Human approval is still required before public u
             limitations.append("- Web search was needed but unavailable or disabled; do not treat this as fresh research.")
         if sources:
             limitations.append("- Sources are mock-mode placeholders unless the run mode was live.")
+        if self._memory_has_previous_sources(memory_packet) and not sources:
+            limitations.append("- Previous memory sources were used; this is not a fresh live search.")
         limitation_text = "\n".join(limitations) or "- No additional limitations recorded."
+        memory_text = self._research_memory_sections(memory_packet, search_result)
         return f"""# Research Brief
 
 ## Command
@@ -2097,12 +2327,365 @@ Approved for local review only. Human approval is still required before public u
 - Current/fresh claims require live provider search approval and configured provider keys.
 - Search brief: {search_brief or "No live search summary."}
 
+{memory_text}
+
 ## Sources
 {source_lines}
 
 ## Limitations
 {limitation_text}
 """
+
+    def _memory_packet_for_agent(
+        self,
+        *,
+        agent_id: str,
+        project_id: str | None,
+        run_id: str,
+        run_type: str,
+        task: str,
+        current_command: str,
+        mode: str,
+    ) -> Any | None:
+        memory_allowed = (
+            getattr(self, "_use_memory_for_current_run", True)
+            and self.settings.enable_vector_memory
+            and ((mode == "mock" and self.settings.memory_use_in_mock) or (mode == "live" and self.settings.memory_use_in_live))
+        )
+        if not memory_allowed:
+            return None
+        try:
+            return build_context_packet(
+                agent_id=agent_id,
+                project_id=project_id,
+                run_id=run_id,
+                run_type=run_type,
+                task=task,
+                current_command=current_command,
+                settings=self.settings,
+            )
+        except Exception:
+            return None
+
+    def _research_memory_sections(self, memory_packet: Any | None, search_result: SearchResultPayload | None) -> str:
+        if not memory_packet or not getattr(memory_packet, "retrieved_memory_items", []):
+            return """## Memory Used
+- No relevant memory was retrieved for this research brief.
+
+## Competitor Themes From Memory
+- No memory themes were available.
+
+## Source Notes
+- No previous source memory was available."""
+        source_memory = getattr(memory_packet, "relevant_source_memory", []) or []
+        source_lines = []
+        for item in source_memory[:4]:
+            run_id = item.get("source_run_id") or "unknown run"
+            provider = item.get("provider_id") or "unknown provider"
+            source_count = item.get("source_count") or 0
+            fresh = "yes" if search_result and search_result.research_used else "no"
+            source_lines.append(f"- Previous source memory from run {run_id}: provider {provider}, sources {source_count}, fresh search used in this run: {fresh}.")
+        if not source_lines:
+            source_lines.append("- Retrieved memory did not include prior source metadata.")
+        themes = self._memory_theme_lines(memory_packet)
+        theme_lines = "\n".join(f"- {theme}" for theme in themes) if themes else "- No competitor themes could be safely extracted from memory."
+        notes = []
+        if self._memory_has_previous_sources(memory_packet):
+            notes.append("- Previous memory sources were used. Do not treat them as new live search.")
+        if search_result and search_result.research_used:
+            notes.append("- This run also executed live search and stored fresh sources.")
+        elif not (search_result and search_result.research_used):
+            notes.append("- No new live search was run in this workflow.")
+        source_note_text = "\n".join(notes)
+        return f"""## Memory Used
+{chr(10).join(source_lines)}
+
+## Competitor Themes From Memory
+{theme_lines}
+
+## Source Notes
+{source_note_text}"""
+
+    def _memory_theme_lines(self, memory_packet: Any | None) -> list[str]:
+        if not memory_packet:
+            return []
+        text = " ".join(
+            f"{result.item.title} {result.item.summary} {result.item.content}"
+            for result in getattr(memory_packet, "retrieved_memory_items", [])
+        ).lower()
+        themes = []
+        if any(term.lower() in text for term in ("chobani", "danone", "oikos")):
+            themes.append("Chobani and Danone/Oikos appear in memory as high-protein, mainstream Greek yogurt competitors.")
+        if "fage" in text:
+            themes.append("FAGE appears in memory as an authentic or premium Greek yogurt benchmark.")
+        broad_names = ["danone", "chobani", "fage", "muller", "müller", "nestle", "nestlé", "yoplait", "lactalis"]
+        found = []
+        for name in broad_names:
+            if name in text:
+                display = {"muller": "Muller", "müller": "Muller", "nestle": "Nestle", "nestlé": "Nestle"}.get(name, name.title())
+                if display not in found:
+                    found.append(display)
+        if found:
+            themes.append(f"Memory names these competitor brands: {', '.join(found)}.")
+        if any(term in text for term in ("protein", "high-protein", "high protein")):
+            themes.append("Protein-forward positioning is a repeated memory theme.")
+        if any(term in text for term in ("clean-label", "clean label", "ingredient", "ingredients")):
+            themes.append("Clean-label ingredients and verified product claims should stay central but human-approved.")
+        return themes[:5]
+
+    def _memory_has_previous_sources(self, memory_packet: Any | None) -> bool:
+        if not memory_packet:
+            return False
+        for item in getattr(memory_packet, "relevant_source_memory", []) or []:
+            source_count = item.get("source_count") or 0
+            if source_count and not item.get("search_unavailable"):
+                return True
+        return False
+
+    def _memory_qa_wording(self, memory_packet: Any | None, output_text: str) -> str:
+        retrieved = bool(memory_packet and getattr(memory_packet, "retrieved_memory_items", []))
+        has_sources = self._memory_has_previous_sources(memory_packet)
+        if not retrieved:
+            return "- No relevant memory was retrieved for this run."
+        lines = ["- Memory was retrieved for this run."]
+        if has_sources:
+            lines.append("- Previous memory sources were used.")
+        if "Memory Used" not in output_text and has_sources:
+            lines.append("- Warning: memory was retrieved but not reflected in an explicit Memory Used section.")
+        else:
+            lines.append("- Memory was reflected in the agent output.")
+        lines.append("- Do not treat memory as fresh search.")
+        return "\n".join(lines)
+
+    def _website_memory_used_text(self, memory_packet: Any | None, search_result: SearchResultPayload | None) -> str:
+        if not memory_packet or not getattr(memory_packet, "retrieved_memory_items", []):
+            return "## Memory Used\n- No relevant memory was retrieved for this website update."
+        lines = ["## Memory Used"]
+        if self._memory_has_previous_sources(memory_packet):
+            for item in (getattr(memory_packet, "relevant_source_memory", []) or [])[:3]:
+                run_id = item.get("source_run_id") or "unknown run"
+                provider = item.get("provider_id") or "unknown provider"
+                source_count = item.get("source_count") or 0
+                lines.append(f"- Previous source memory from run {run_id}: provider {provider}, sources {source_count}.")
+            if search_result and search_result.research_used:
+                lines.append("- Live search was executed in this run and sources were stored.")
+            else:
+                lines.append("- New live search was not used. Previous memory sources were used.")
+        else:
+            lines.append("- Retrieved memory did not include prior source metadata.")
+        themes = self._memory_theme_lines(memory_packet)
+        if themes:
+            lines.append("\n## Competitor Themes From Memory")
+            lines.extend(f"- {theme}" for theme in themes)
+        return "\n".join(lines)
+
+    def _is_homepage_copy_task(self, command: str) -> bool:
+        text = command.lower()
+        copy_terms = ("homepage copy", "landing page copy", "improve homepage", "update hero", "update website copy", "only update homepage", "homepage content")
+        backend_terms = ("status page", "order tracking", "backend", "app.py", "requirements", "dependencies", "sample orders")
+        return any(term in text for term in copy_terms) and not any(term in text for term in backend_terms)
+
+    def _website_scope_plan(self, command: str, homepage_copy_task: bool, changed_files: list[str], system_metadata_files: list[str]) -> str:
+        if homepage_copy_task:
+            allowed = ["website/templates/index.html", "website/data/faqs.json", "website/README.md"]
+            blocked = ["website/app.py", "website/requirements.txt", "website/templates/status.html", "website/data/order_statuses.json", "website/data/sample_orders.json"]
+            task_type = "homepage_copy"
+            reason = "copy-only update does not require backend/app/dependency/order-data changes"
+        else:
+            allowed = ["website/**"]
+            blocked = ["deployments", "package installs", ".env and secret files"]
+            task_type = "website_update"
+            reason = "website workflow may update prototype files but must remain inside the project workspace"
+        return f"""## Website Scope Plan
+* User requested: {command}
+* task_type: {task_type}
+* Allowed target files:
+{chr(10).join(f'  * {path}' for path in allowed)}
+* Files intentionally not touched:
+{chr(10).join(f'  * {path}' for path in blocked)}
+* Changed files:
+{chr(10).join(f'  * {path}' for path in changed_files) if changed_files else '  * None yet'}
+* System metadata files:
+{chr(10).join(f'  * {path}' for path in system_metadata_files)}
+* Reason: {reason}
+"""
+
+    def _save_real_coding_artifacts(self, run_id: str, result: RealCodingAgentResult) -> list[Any]:
+        payload = result.model_dump()
+        artifacts = [
+            self.artifacts.save_text(
+                run_id=run_id,
+                name="coding_context.json",
+                artifact_type="json",
+                content=json.dumps(
+                    {
+                        "files_inspected": result.files_inspected,
+                        "files_selected": result.files_selected,
+                        "memory_used": result.memory_used,
+                        "search_context_used": result.search_context_used,
+                    },
+                    indent=2,
+                ),
+                agent_name="Real Coding Agent",
+                summary="Compact coding context metadata; protected files are excluded.",
+            ),
+            self.artifacts.save_text(
+                run_id=run_id,
+                name="file_scope_plan.json",
+                artifact_type="json",
+                content=json.dumps(
+                    {
+                        "task_type": result.task_type,
+                        "allowed_user_file_scope": result.allowed_user_file_scope.model_dump(),
+                        "files_selected": result.files_selected,
+                        "files_changed": result.files_changed,
+                        "rejected_files": result.rejected_files,
+                        "no_change_reason": result.no_change_reason,
+                        "hardcoded_fallback_used": result.hardcoded_fallback_used,
+                    },
+                    indent=2,
+                ),
+                agent_name="Real Coding Agent",
+                summary="Real Coding Agent file scope plan.",
+            ),
+            self.artifacts.save_text(
+                run_id=run_id,
+                name="coding_plan.md",
+                artifact_type="markdown",
+                content=self._real_coding_plan_markdown(result),
+                agent_name="Real Coding Agent",
+                summary="Coding plan and model selection notes.",
+            ),
+            self.artifacts.save_text(
+                run_id=run_id,
+                name="proposed_patch.json",
+                artifact_type="json",
+                content=json.dumps(payload.get("proposed_patch") or {}, indent=2),
+                agent_name="Real Coding Agent",
+                summary="Structured patch proposed by the coding model or mock simulator.",
+            ),
+            self.artifacts.save_text(
+                run_id=run_id,
+                name="applied_patch_summary.json",
+                artifact_type="json",
+                content=json.dumps({"patch_applied": result.patch_applied, "dry_run": result.dry_run, "applied_files": payload.get("applied_files", [])}, indent=2),
+                agent_name="Real Coding Agent",
+                summary="Applied patch summary with before/after diffs.",
+            ),
+            self.artifacts.save_text(
+                run_id=run_id,
+                name="validation_result.json",
+                artifact_type="json",
+                content=json.dumps({"validation": payload.get("validation"), "commands": result.validation_commands}, indent=2),
+                agent_name="Real Coding Agent",
+                summary="Patch validation and command validation result.",
+            ),
+            self.artifacts.save_text(
+                run_id=run_id,
+                name="real_coding_agent_report.md",
+                artifact_type="markdown",
+                content=self._real_coding_report(result),
+                agent_name="Real Coding Agent",
+                summary="Human-readable Real Coding Agent report.",
+            ),
+        ]
+        return artifacts
+
+    def _real_coding_plan_markdown(self, result: RealCodingAgentResult) -> str:
+        return f"""# Real Coding Agent Plan
+
+## Model
+- Selected model: {result.selected_model}
+- Provider: {result.actual_provider}
+- Fallback model: {result.fallback_model or "none"}
+- Live call made: {result.live_call_made}
+- Mock simulated: {result.mock_simulated}
+- GPT-5.5 not used: true
+
+## Scope
+- Task type: {result.task_type}
+- Files inspected: {len(result.files_inspected)}
+- Files selected: {", ".join(result.files_selected) or "none"}
+- Dry run: {result.dry_run}
+- Template fallback used: {result.hardcoded_fallback_used}
+"""
+
+    def _real_coding_report(self, result: RealCodingAgentResult) -> str:
+        validation = "accepted" if result.validation.accepted else "rejected"
+        return f"""# Real Coding Agent v1 Report
+
+## Status
+- Real coding enabled: {result.enabled}
+- Real coding used: {result.used}
+- Actual provider: {result.actual_provider}
+- Selected model: {result.selected_model}
+- Fallback model: {result.fallback_model or "none"}
+- Live call made: {result.live_call_made}
+- Mock simulated: {result.mock_simulated}
+- Dry run: {result.dry_run}
+- Patch applied: {result.patch_applied}
+- No change reason: {result.no_change_reason or "n/a"}
+- Hardcoded fallback used: {result.hardcoded_fallback_used}
+
+## Files
+- Inspected: {", ".join(result.files_inspected[:20]) or "none"}
+- Selected: {", ".join(result.files_selected) or "none"}
+- Changed: {", ".join(result.files_changed) or "none"}
+- Rejected: {", ".join(result.rejected_files) or "none"}
+
+## Validation
+- Patch validation: {validation}
+- Violations: {"; ".join(result.validation.violations) or "none"}
+- Warnings: {"; ".join(result.validation.warnings) or "none"}
+- Patch-specific validation commands: {len(result.validation_commands)}
+
+## Memory
+- Primary memory source: {result.memory_used[0].get("title") if result.memory_used else "none"}
+- Why used: {", ".join(result.memory_used[0].get("why_selected", [])) if result.memory_used else "n/a"}
+- Excluded low-quality memory: {"; ".join(result.memory_exclusions) or "none"}
+
+## Notes
+{chr(10).join(f"- {note}" for note in result.notes)}
+"""
+
+    def _template_fallback_result(self, command: str, model: str, changed_files: list[str], homepage_copy_task: bool) -> RealCodingAgentResult:
+        return RealCodingAgentResult(
+            enabled=self.settings.enable_real_coding_agent,
+            used=False,
+            actual_provider="mock",
+            selected_model=model,
+            fallback_model=self.settings.real_coding_agent_fallback_model,
+            live_call_made=False,
+            mock_simulated=True,
+            dry_run=False,
+            hardcoded_fallback_used=True,
+            patch_applied=True,
+            task_type="website_copy_update" if homepage_copy_task else "website_ui_update",
+            allowed_user_file_scope=prompt_file_scope(command, "website_copy_update" if homepage_copy_task else "website_ui_update"),
+            files_inspected=changed_files,
+            files_selected=changed_files,
+            files_changed=changed_files,
+            validation=PatchValidationResult(
+                accepted=True,
+                warnings=["Deterministic Greek yogurt builder is a mock/demo fallback. Real Coding Agent should be used for general project edits."],
+            ),
+            notes=[
+                "Template fallback used. No real coding model call was made.",
+                "Deterministic Greek yogurt builder is a mock/demo fallback and should not be expanded for general coding tasks.",
+                f"Command: {command[:300]}",
+            ],
+        )
+
+    def _real_coding_final_action(self, result: RealCodingAgentResult | None) -> str:
+        if result is None:
+            return "Updated website files."
+        if result.hardcoded_fallback_used:
+            return "Used deterministic template fallback; no real coding model call was made."
+        if result.dry_run:
+            return "Real Coding Agent prepared and validated a dry-run patch without applying file changes."
+        if result.patch_applied:
+            return "Real Coding Agent inspected files, generated a structured patch, validated it, and applied approved file changes."
+        return "Real Coding Agent inspected files and validated the proposed patch without applying changes."
 
     def _prototype_final_report(
         self,

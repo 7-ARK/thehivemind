@@ -10,8 +10,29 @@ from app.workspace.command_runner import SafeCommandRunner
 
 def test_model_registry_loads(client):
     models = ModelRegistryLoader().models()
-    assert {model.id for model in models} >= {"gpt-5.5", "gpt-5.4-nano", "gemini-3.5-flash", "qwen/qwen3-coder"}
+    assert {model.id for model in models} >= {"gpt-5.5", "gpt-5.4-nano", "gemini-3.5-flash", "qwen/qwen3-coder", "moonshotai/kimi-k2.7-code"}
     assert all(model.best_for is not None for model in models)
+
+
+def test_model_registry_merges_new_defaults_without_overwriting_local_overrides(client):
+    from app.core.config import get_settings
+
+    settings = get_settings()
+    loader = ModelRegistryLoader(settings)
+    legacy_models = [
+        {
+            **model.model_dump(),
+            "enabled": False if model.id == "gpt-5.4-nano" else model.enabled,
+        }
+        for model in loader.models()
+        if model.id != "moonshotai/kimi-k2.7-code"
+    ]
+    (loader.store.root / "models.json").write_text(__import__("json").dumps(legacy_models), encoding="utf-8")
+
+    reloaded = ModelRegistryLoader(settings).models()
+    by_id = {model.id: model for model in reloaded}
+    assert "moonshotai/kimi-k2.7-code" in by_id
+    assert by_id["gpt-5.4-nano"].enabled is False
 
 
 def test_disabled_models_are_not_selectable(client, tmp_path, monkeypatch):

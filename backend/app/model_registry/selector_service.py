@@ -164,6 +164,8 @@ class DynamicModelSelector:
             score += 4
         if "coding" in request.required_capabilities and model.preferred_for_coding:
             score += 4
+        if "coding" in request.required_capabilities and model.id == self.settings.real_coding_agent_model:
+            score += 5
         if "search" in request.required_capabilities and model.preferred_for_search:
             score += 4
         if "tools" in request.required_capabilities and model.supports_tool_use:
@@ -205,7 +207,7 @@ def _allowed_for_agent(model: ModelRegistryEntry, agent_id: str) -> bool:
         return model.allowed_for_ceo
     if normalized in {"research_agent", "research"}:
         return model.allowed_for_research
-    if normalized in {"website_agent", "file_builder_agent", "coding_agent", "website", "file_builder"}:
+    if normalized in {"website_agent", "file_builder_agent", "coding_agent", "real_coding_agent", "coding_worker_agent", "website", "file_builder"}:
         return model.allowed_for_website or model.allowed_for_file_builder
     if normalized in {"qa_agent", "qa"}:
         return model.allowed_for_qa

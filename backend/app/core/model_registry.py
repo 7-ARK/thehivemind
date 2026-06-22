@@ -77,6 +77,16 @@ MODEL_REGISTRY: dict[str, ModelMetadata] = {
         supports_vision=False,
         notes="Placeholder assumption until OpenRouter model-specific pricing is wired in.",
     ),
+    "moonshotai/kimi-k2.7-code": ModelMetadata(
+        model_name="moonshotai/kimi-k2.7-code",
+        provider="openrouter",
+        role="primary_coding_worker",
+        input_price_per_1m=0.15,
+        output_price_per_1m=0.60,
+        supports_search=False,
+        supports_vision=False,
+        notes="Primary OpenRouter coding worker for Real Coding Agent v1. Pricing is a safety estimate; official spend comes from provider usage.",
+    ),
 }
 
 

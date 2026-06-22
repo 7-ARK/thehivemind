@@ -98,7 +98,13 @@ class MemoryIngestor:
                             "allowed_agents": ["research_agent", "website_agent", "qa_agent"],
                             "search_provider": payload.get("provider_id"),
                             "source_urls": urls,
-                            "metadata": {"mock_fixture": payload.get("mock_fixture"), "source_count": payload.get("source_count")},
+                            "metadata": {
+                                "mock_fixture": payload.get("mock_fixture"),
+                                "source_count": payload.get("source_count"),
+                                "search_unavailable": payload.get("search_unavailable"),
+                                "provider_id": payload.get("provider_id"),
+                                "search_used": payload.get("search_used"),
+                            },
                         }
                     ).id
                 )

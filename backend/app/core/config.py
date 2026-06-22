@@ -34,6 +34,17 @@ class Settings(BaseSettings):
     cheap_worker_model: str = "gpt-5.4-nano"
     cheap_search_worker_model: str = "gemini-3.1-flash-lite"
     openrouter_default_model: str = "qwen/qwen3-coder"
+    enable_real_coding_agent: bool = True
+    allow_real_coding_agent: bool = False
+    real_coding_agent_model: str = "moonshotai/kimi-k2.7-code"
+    real_coding_agent_fallback_model: str = "qwen/qwen3-coder"
+    real_coding_max_input_files: int = 12
+    real_coding_max_output_files: int = 8
+    real_coding_max_patch_bytes: int = 50000
+    real_coding_max_repair_attempts: int = 1
+    real_coding_require_diff: bool = True
+    real_coding_dry_run: bool = False
+    real_coding_use_memory: bool = True
 
     database_url: str = "sqlite:///./thehivemind.db"
     vector_store_path: str = "./data/vector_memory"

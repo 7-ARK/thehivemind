@@ -39,7 +39,12 @@ def build_context_packet(
         project_state_summary=_first_summary(results, "project_state"),
         active_constraints=constraints_for_packet(current_command, run_type),
         relevant_sources=_source_notes(results),
+        relevant_research_memory=[result.item.summary or result.item.content for result in results if result.item.memory_type == "research_brief"],
+        relevant_source_memory=_source_metadata(results),
+        relevant_constraints=[result.item.summary or result.item.content for result in results if result.item.memory_type == "safety_constraint"],
         relevant_qa_warnings=[result.item.summary or result.item.content for result in results if result.item.memory_type == "qa_warning"],
+        relevant_file_history=[result.item.summary or result.item.content for result in results if result.item.memory_type == "file_change_summary"],
+        relevant_model_routing_notes=[result.item.summary or result.item.content for result in results if result.item.memory_type == "model_selection"],
         model_routing_notes=[result.item.summary or result.item.content for result in results if result.item.memory_type == "model_selection"],
         token_budget=active_settings.memory_max_tokens_per_agent,
         omitted_memory_count=max(0, len(results) - active_settings.memory_top_k),
@@ -57,6 +62,9 @@ def format_context_packet(packet: ContextPacket) -> str:
         lines.append(f"- [{item.memory_type}] {item.summary or item.content[:240]} (why: {', '.join(result.why_selected)})")
     lines.append("\n## Active Constraints")
     lines.extend(f"- {constraint}" for constraint in packet.active_constraints)
+    if packet.relevant_research_memory:
+        lines.append("\n## Relevant Research Memory")
+        lines.extend(f"- {memory}" for memory in packet.relevant_research_memory[:3])
     if packet.relevant_sources:
         lines.append("\n## Source Notes")
         lines.extend(f"- {source}" for source in packet.relevant_sources)
@@ -83,6 +91,28 @@ def _source_notes(results) -> list[str]:
         suffix = f" URLs: {urls}" if urls else ""
         notes.append(f"{item.summary or item.content}{suffix}")
     return notes
+
+
+def _source_metadata(results) -> list[dict]:
+    items = []
+    for result in results:
+        item = result.item
+        if item.memory_type != "research_source_summary":
+            continue
+        items.append(
+            {
+                "title": item.title,
+                "source_run_id": item.source_run_id,
+                "provider_id": item.search_provider or item.metadata.get("provider_id"),
+                "source_count": item.metadata.get("source_count", len(item.source_urls)),
+                "search_used": bool(item.source_urls or item.metadata.get("source_count")),
+                "mock_fixture": bool(item.metadata.get("mock_fixture")),
+                "search_unavailable": bool(item.metadata.get("search_unavailable")),
+                "source_urls": item.source_urls[:5],
+                "why_selected": result.why_selected,
+            }
+        )
+    return items
 
 
 def _redacted_packet(packet: ContextPacket) -> ContextPacket:

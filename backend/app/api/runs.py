@@ -9,6 +9,7 @@ from app.core.models import RunCreate, RunRecord
 from app.artifacts.artifact_store import ArtifactStore
 from app.artifacts.schemas import ArtifactContent
 from app.core.models import Artifact, RunEvent
+from app.coding.coding_policy import is_focused_website_update
 from app.orchestration.execution_engine import execute_run
 from app.orchestration.run_manager import RunManager
 from app.projects.project_diff import read_file_changes
@@ -41,6 +42,11 @@ async def start_run(payload: RunCreate) -> RunStartResponse:
         allow_safe_commands=payload.allow_safe_commands,
         allow_web_search=payload.allow_web_search,
         use_memory=payload.use_memory,
+        use_real_coding_agent=payload.use_real_coding_agent,
+        allow_live_coding_model_call=payload.allow_live_coding_model_call,
+        real_coding_dry_run=payload.real_coding_dry_run,
+        real_coding_model=payload.real_coding_model,
+        real_coding_max_files=payload.real_coding_max_files,
         max_cost_usd=payload.max_cost_usd,
     )
     if record.mode == "live":
@@ -52,6 +58,11 @@ async def start_run(payload: RunCreate) -> RunStartResponse:
 def _apply_prompt_safety_overrides(payload: RunCreate) -> RunCreate:
     command = payload.command.lower()
     updates = {}
+    if payload.run_type in {"prototype_build", "continuation", "business_launch_plan"} and is_focused_website_update(payload.command):
+        updates["run_type"] = "website_update"
+        updates["allow_file_writes"] = True
+        updates["use_real_coding_agent"] = True
+        updates["allow_ceo_live"] = False
     if any(phrase in command for phrase in ("do not create files", "don't create files", "no file writes", "do not write files")):
         updates["allow_file_writes"] = False
     if any(phrase in command for phrase in ("do not update files", "don't update files", "research only", "only research")):
@@ -60,7 +71,7 @@ def _apply_prompt_safety_overrides(payload: RunCreate) -> RunCreate:
         updates["allow_safe_commands"] = False
     if any(phrase in command for phrase in ("do not run commands", "don't run commands", "no commands", "do not execute commands")):
         updates["allow_safe_commands"] = False
-    if any(phrase in command for phrase in ("do not search", "don't search", "no web search", "do not browse")):
+    if any(phrase in command for phrase in ("do not search", "don't search", "no web search", "do not browse", "do not run live web search")):
         updates["allow_web_search"] = False
     return payload.model_copy(update=updates) if updates else payload
 

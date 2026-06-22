@@ -6,6 +6,37 @@ from app.workspace.schemas import FileManifestEntry
 
 
 class FileBuilderAgent(BaseAgent):
+    def build_project_greek_yogurt_homepage_copy_update(
+        self,
+        project_id: str,
+        run_id: str,
+        command: str,
+        memory_themes: list[str] | None = None,
+    ) -> list[ProjectFileWriteResult]:
+        writer = ProjectWorkspaceManager()
+        existing_paths = {item.path for item in writer.get_project_manifest(project_id).files}
+        include_status_page = "website/templates/status.html" in existing_paths or "website/data/order_statuses.json" in existing_paths
+        files = {
+            "website/templates/index.html": self._homepage_copy_index_html(
+                include_status_page=include_status_page,
+                memory_themes=memory_themes or [],
+            ),
+            "website/data/faqs.json": self._homepage_copy_faqs_json(),
+        }
+        entries = []
+        for path, content in files.items():
+            entries.append(
+                writer.write_project_file(
+                    project_id=project_id,
+                    relative_path=path,
+                    content=content,
+                    agent_name=self.name,
+                    run_id=run_id,
+                    summary=self._summary_for(path, command),
+                )
+            )
+        return entries
+
     def build_project_greek_yogurt_site(self, project_id: str, run_id: str, command: str) -> list[ProjectFileWriteResult]:
         writer = ProjectWorkspaceManager()
         existing_paths = {item.path for item in writer.get_project_manifest(project_id).files}
@@ -314,6 +345,83 @@ if __name__ == "__main__":
     </main>
   </body>
 </html>
+"""
+
+    def _homepage_copy_index_html(self, *, include_status_page: bool, memory_themes: list[str]) -> str:
+        status_link = "<p><a href=\"/status?order_id=GY-1001\">Check sample order status</a></p>" if include_status_page else ""
+        theme_note = " ".join(memory_themes[:2]) or "The copy leans into thick texture, high protein, clean ingredients, and founder-batch freshness."
+        return f"""<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Thick Spoon Greek Yogurt</title>
+    <style>
+      body {{ font-family: Arial, sans-serif; margin: 0; background: #f7faf7; color: #1f2933; }}
+      main {{ max-width: 880px; margin: 0 auto; padding: 40px 20px; }}
+      .hero {{ background: white; border: 1px solid #d9e2dc; padding: 28px; border-radius: 8px; }}
+      .products {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin: 20px 0; }}
+      .product, form, .faq {{ background: white; border: 1px solid #d9e2dc; padding: 16px; border-radius: 8px; }}
+      label {{ display: block; margin-top: 12px; font-weight: 700; }}
+      input, select, button {{ width: 100%; padding: 10px; margin-top: 6px; box-sizing: border-box; }}
+      button {{ background: #2f855a; color: white; border: 0; border-radius: 6px; cursor: pointer; }}
+      details {{ margin-top: 10px; }}
+    </style>
+  </head>
+  <body>
+    <main>
+      <section class="hero">
+        <h1>Thick Spoon Greek Yogurt</h1>
+        <p>Small-batch Greek yogurt cups built around thick texture, protein-forward positioning, and clean-label flavors.</p>
+        <p>Inspired by competitor memory around Chobani, Oikos, FAGE, and high-protein premium yogurt positioning.</p>
+        <p><strong>Memory note:</strong> {theme_note}</p>
+        <p><strong>Safety note:</strong> Orders, prices, delivery areas, and nutrition claims still need human approval.</p>
+        {status_link}
+      </section>
+      <section class="products">
+        <article class="product"><h2>Classic Honey</h2><p>Thick plain yogurt with a honey finish for simple daily breakfasts.</p></article>
+        <article class="product"><h2>Berry Crunch</h2><p>Fruit, granola, and chilled yogurt for a snack that feels fresh and filling.</p></article>
+        <article class="product"><h2>Desi Mango</h2><p>Mango, plain Greek-style yogurt, and a light cardamom note for local taste.</p></article>
+      </section>
+      <section class="faq">
+        <h2>FAQ</h2>
+        <details open><summary>Can I place a real order from this prototype?</summary><p>No. Orders stay manual and must be confirmed by a human.</p></details>
+        <details><summary>Are the health and nutrition claims final?</summary><p>No. Claims about protein, calories, ingredients, and storage must be verified before public use.</p></details>
+        <details><summary>Was new live research used for this copy?</summary><p>No. This update uses previous memory and should not be treated as fresh search.</p></details>
+      </section>
+      <form method="post" action="/order">
+        <h2>Request an Order</h2>
+        <label>Name<input name="name" required /></label>
+        <label>Flavor
+          <select name="flavor">
+            <option>Classic Honey</option>
+            <option>Berry Crunch</option>
+            <option>Desi Mango</option>
+          </select>
+        </label>
+        <label>Quantity<input name="quantity" type="number" min="1" value="1" /></label>
+        <button type="submit">Send for Manual Approval</button>
+      </form>
+    </main>
+  </body>
+</html>
+"""
+
+    def _homepage_copy_faqs_json(self) -> str:
+        return """[
+  {
+    "question": "Can I place a real order from this prototype?",
+    "answer": "No. This local prototype only demonstrates the flow; every order needs manual human confirmation."
+  },
+  {
+    "question": "Was new live research used for this copy update?",
+    "answer": "No. This copy should be treated as memory-assisted, not fresh live research."
+  },
+  {
+    "question": "Are protein, nutrition, pricing, and delivery claims final?",
+    "answer": "No. Product claims, pricing, delivery radius, and storage guidance must be verified before public use."
+  }
+]
 """
 
     def build_greek_yogurt_site(self, run_id: str) -> list[FileManifestEntry]:

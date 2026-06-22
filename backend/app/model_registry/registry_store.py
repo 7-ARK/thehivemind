@@ -49,12 +49,42 @@ class ModelRegistryStore:
 
     def _ensure_models(self) -> None:
         path = self.root / "models.json"
-        should_write = not path.exists()
-        if not should_write:
-            try:
-                existing = json.loads(path.read_text(encoding="utf-8"))
-                should_write = len(existing) < 12 or any("approved_for_auto_selection" not in item for item in existing)
-            except (OSError, json.JSONDecodeError, TypeError):
-                should_write = True
-        if should_write:
+        if not path.exists():
             path.write_text(json.dumps(MODELS, indent=2, ensure_ascii=True), encoding="utf-8")
+            return
+
+        try:
+            existing = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError, TypeError):
+            path.write_text(json.dumps(MODELS, indent=2, ensure_ascii=True), encoding="utf-8")
+            return
+        if not isinstance(existing, list):
+            path.write_text(json.dumps(MODELS, indent=2, ensure_ascii=True), encoding="utf-8")
+            return
+
+        defaults_by_id = {item.get("id"): item for item in MODELS if isinstance(item, dict) and item.get("id")}
+        merged: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        changed = False
+        for item in existing:
+            if not isinstance(item, dict):
+                changed = True
+                continue
+            model_id = item.get("id")
+            default = defaults_by_id.get(model_id)
+            if default:
+                merged_item = {**default, **item}
+                if merged_item != item:
+                    changed = True
+                merged.append(merged_item)
+                seen.add(model_id)
+            else:
+                merged.append(item)
+
+        for model_id, item in defaults_by_id.items():
+            if model_id not in seen:
+                merged.append(item)
+                changed = True
+
+        if changed:
+            path.write_text(json.dumps(merged, indent=2, ensure_ascii=True), encoding="utf-8")

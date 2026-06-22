@@ -90,11 +90,17 @@ class ContextPacket(BaseModel):
     project_state_summary: str = ""
     active_constraints: list[str] = Field(default_factory=list)
     relevant_sources: list[str] = Field(default_factory=list)
+    relevant_research_memory: list[str] = Field(default_factory=list)
+    relevant_source_memory: list[dict[str, Any]] = Field(default_factory=list)
+    relevant_constraints: list[str] = Field(default_factory=list)
     relevant_qa_warnings: list[str] = Field(default_factory=list)
+    relevant_file_history: list[str] = Field(default_factory=list)
+    relevant_model_routing_notes: list[str] = Field(default_factory=list)
     model_routing_notes: list[str] = Field(default_factory=list)
     token_budget: int = 1200
     omitted_memory_count: int = 0
     created_at: str
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class MemoryRetrievalRequest(BaseModel):

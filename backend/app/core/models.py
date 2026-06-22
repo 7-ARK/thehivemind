@@ -22,6 +22,11 @@ class RunCreate(BaseModel):
     allow_safe_commands: bool = False
     allow_web_search: bool = False
     use_memory: bool = True
+    use_real_coding_agent: bool = True
+    allow_live_coding_model_call: bool = False
+    real_coding_dry_run: bool = False
+    real_coding_model: str | None = None
+    real_coding_max_files: int | None = Field(default=None, ge=1, le=20)
     max_cost_usd: float = Field(default=0.25, gt=0, le=5)
     approval_ids: list[str] = Field(default_factory=list)
 

@@ -55,6 +55,22 @@ def evaluate_approval_needs(payload: RunCreate, run_id: str | None = None, setti
             )
         )
 
+    if payload.allow_live_coding_model_call:
+        approvals.append(
+            _approval(
+                payload,
+                run_id,
+                approval_type="live_coding_model",
+                risk_level="high",
+                title="Approval required: Live coding model",
+                reason="Real Coding Agent live mode can send selected project file context to OpenRouter and spend provider credits.",
+                requested_action="Allow a live OpenRouter coding model call for this run.",
+                estimated_cost_usd=payload.max_cost_usd,
+                model=active_settings.real_coding_agent_model,
+                provider="openrouter",
+            )
+        )
+
     keyword_rules = [
         (
             "package_install",
@@ -218,7 +234,7 @@ def _negative_phrases_for(approval_type: str) -> list[str]:
         "package_install": ["do not install packages", "don't install packages", "no package installs", "do not install dependencies"],
         "deployment": ["do not deploy", "don't deploy", "no deploy", "no deployment"],
         "external_api": ["no external actions", "do not call external api", "don't call external api", "do not use external actions"],
-        "web_search": ["do not search", "don't search", "no web search", "do not browse", "don't browse"],
+        "web_search": ["do not search", "don't search", "no web search", "do not browse", "don't browse", "do not run live web search"],
         "customer_messaging": ["do not send email", "don't send email", "do not send whatsapp", "don't send whatsapp", "no emails", "no whatsapp"],
         "social_posting": ["do not post", "don't post", "no social posting"],
         "payment_integration": ["do not add payment", "don't add payment", "no payment integration"],

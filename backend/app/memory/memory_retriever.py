@@ -8,6 +8,9 @@ from app.memory.memory_policies import active_constraints_from_command
 from app.memory.memory_store import MemoryStore
 from app.memory.schemas import MemoryItem, MemoryRetrievalRequest, MemorySearchResult
 
+RESEARCH_TYPES = {"research_brief", "research_source_summary"}
+PLANNING_TYPES = {"agent_plan", "next_step"}
+
 
 class MemoryRetriever:
     def __init__(self, settings: Settings | None = None, store: MemoryStore | None = None) -> None:
@@ -21,12 +24,20 @@ class MemoryRetriever:
         query_vector = sparse_vector(query)
         query_tokens = set(tokenize(query))
         results: list[MemorySearchResult] = []
-        for item in self.store.items(project_id=request.project_id, include_global=True):
+        query_kind = classify_query(query, request.agent_id, request.run_type)
+        candidates = [
+            item
+            for item in self.store.items(project_id=request.project_id, include_global=True)
+            if self._allowed_for_agent(item, request.agent_id)
+            and not (item.scope == "project" and item.project_id != request.project_id)
+        ]
+        live_source_available = any(self._is_live_source_memory(item) for item in candidates)
+        for item in candidates:
             if not self._allowed_for_agent(item, request.agent_id):
                 continue
             if item.scope == "project" and item.project_id != request.project_id:
                 continue
-            score, why = self._score(item, query_vector, query_tokens, request)
+            score, why = self._score(item, query_vector, query_tokens, request, query_kind, live_source_available)
             if score <= 0:
                 continue
             results.append(MemorySearchResult(item=item, score=round(score, 4), why_selected=why))
@@ -39,6 +50,8 @@ class MemoryRetriever:
         query_vector: dict[str, float],
         query_tokens: set[str],
         request: MemoryRetrievalRequest,
+        query_kind: str,
+        live_source_available: bool,
     ) -> tuple[float, list[str]]:
         similarity = cosine(query_vector, item.sparse_vector)
         tag_match_count = len(set(item.tags) & query_tokens)
@@ -60,9 +73,83 @@ class MemoryRetriever:
             why.append("project match")
         if item.importance >= 4:
             why.append("high importance")
+        score = self._apply_query_boosts(score, why, item, query_kind, live_source_available)
         if not why:
             why.append("low relevance")
         return score, why
+
+    def _apply_query_boosts(self, score: float, why: list[str], item: MemoryItem, query_kind: str, live_source_available: bool) -> float:
+        source_count = _int_metadata(item, "source_count")
+        search_unavailable = _bool_metadata(item, "search_unavailable")
+        mock_fixture = _bool_metadata(item, "mock_fixture")
+        has_provider = bool(item.search_provider or item.metadata.get("provider_id"))
+        has_source_urls = bool(item.source_urls)
+
+        if query_kind in {"research_query", "source_query"}:
+            if item.memory_type == "research_source_summary":
+                score += 0.75
+                why.append("boosted: research_source_summary")
+            if item.memory_type == "research_brief":
+                score += 0.38
+                why.append("boosted: research_brief")
+            if source_count > 0:
+                score += 0.50
+                why.append("boosted: source_count > 0")
+            if has_provider or has_source_urls:
+                score += 0.42
+                why.append("boosted: previous live Exa source")
+            if search_unavailable or source_count == 0:
+                score -= 0.55
+                why.append("down-ranked: skipped search")
+            if mock_fixture and live_source_available:
+                score -= 0.22
+                why.append("down-ranked: mock fixture")
+            if item.memory_type in PLANNING_TYPES or item.memory_type == "model_selection":
+                score -= 0.28
+                why.append("down-ranked: planning artifact for research query")
+
+        if query_kind == "website_update_query":
+            if item.memory_type in RESEARCH_TYPES:
+                score += 0.22
+                why.append(f"boosted: {item.memory_type}")
+            if item.memory_type in {"file_change_summary", "project_state", "qa_warning", "safety_constraint"}:
+                score += 0.18
+                why.append(f"boosted: {item.memory_type}")
+            if item.memory_type in RESEARCH_TYPES and (source_count > 0 or has_provider or has_source_urls):
+                score += 0.18
+                why.append("boosted: previous live Exa source")
+            if item.memory_type in RESEARCH_TYPES and (search_unavailable or source_count == 0):
+                score -= 0.18
+                why.append("down-ranked: skipped search")
+
+        if query_kind == "model_routing_query" and item.memory_type == "model_selection":
+            score += 0.35
+            why.append("boosted: model_selection for routing query")
+        elif query_kind != "model_routing_query" and item.memory_type == "model_selection":
+            score -= 0.10
+
+        if query_kind == "planning_query" and item.memory_type in PLANNING_TYPES:
+            score += 0.28
+            why.append("boosted: planning memory")
+        elif query_kind not in {"planning_query", "next_step_query"} and item.memory_type in PLANNING_TYPES:
+            score -= 0.08
+
+        if query_kind == "qa_query" and item.memory_type == "qa_warning":
+            score += 0.30
+            why.append("boosted: QA warning")
+        if query_kind == "file_history_query" and item.memory_type == "file_change_summary":
+            score += 0.32
+            why.append("boosted: file_change_summary")
+        return score
+
+    def _is_live_source_memory(self, item: MemoryItem) -> bool:
+        return (
+            item.memory_type == "research_source_summary"
+            and _int_metadata(item, "source_count") > 0
+            and not _bool_metadata(item, "search_unavailable")
+            and not _bool_metadata(item, "mock_fixture")
+            and bool(item.search_provider or item.source_urls)
+        )
 
     def _allowed_for_agent(self, item: MemoryItem, agent_id: str) -> bool:
         if item.blocked_agents and agent_id in item.blocked_agents:
@@ -123,3 +210,39 @@ def constraints_for_packet(command: str, run_type: str) -> list[str]:
 
 def now_iso() -> str:
     return datetime.now(UTC).isoformat()
+
+
+def classify_query(query: str, agent_id: str = "", run_type: str = "") -> str:
+    text = f"{query} {agent_id} {run_type}".lower()
+    if any(term in text for term in ("source", "sources", "exa", "citation", "url", "research used")):
+        return "source_query"
+    if any(term in text for term in ("research", "competitor", "market", "themes", "summarize")):
+        return "research_query"
+    if any(term in text for term in ("homepage", "landing page", "website copy", "hero", "update website", "improve homepage")):
+        return "website_update_query"
+    if any(term in text for term in ("model", "routing", "gpt", "gemini", "openrouter", "provider")):
+        return "model_routing_query"
+    if any(term in text for term in ("qa", "validate", "warning", "risk", "review")):
+        return "qa_query"
+    if any(term in text for term in ("file", "changed", "updated", "history", "workspace")):
+        return "file_history_query"
+    if any(term in text for term in ("next step", "continue", "plan", "workflow", "task breakdown")):
+        return "planning_query"
+    return "general"
+
+
+def _bool_metadata(item: MemoryItem, key: str) -> bool:
+    value = item.metadata.get(key)
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.lower() in {"true", "1", "yes"}
+    return bool(value)
+
+
+def _int_metadata(item: MemoryItem, key: str) -> int:
+    value = item.metadata.get(key, 0)
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0

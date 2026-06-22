@@ -12,6 +12,13 @@ if str(ROOT) not in sys.path:
 @pytest.fixture()
 def client(monkeypatch, tmp_path):
     monkeypatch.setenv("ALLOW_LIVE_CALLS", "false")
+    monkeypatch.setenv("ENABLE_REAL_CODING_AGENT", "true")
+    monkeypatch.setenv("ALLOW_REAL_CODING_AGENT", "false")
+    monkeypatch.setenv("REAL_CODING_AGENT_MODEL", "moonshotai/kimi-k2.7-code")
+    monkeypatch.setenv("REAL_CODING_AGENT_FALLBACK_MODEL", "qwen/qwen3-coder")
+    monkeypatch.setenv("REAL_CODING_MAX_INPUT_FILES", "12")
+    monkeypatch.setenv("REAL_CODING_MAX_OUTPUT_FILES", "8")
+    monkeypatch.setenv("REAL_CODING_DRY_RUN", "false")
     monkeypatch.setenv("OPENAI_API_KEY", "")
     monkeypatch.setenv("OPENAI_ADMIN_API_KEY", "")
     monkeypatch.setenv("GOOGLE_API_KEY", "")
