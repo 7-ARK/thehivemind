@@ -132,6 +132,44 @@ def test_website_update_selects_website_and_qa_not_full_launch(client):
     assert plan.approval_required is False
 
 
+def test_negated_web_search_phrase_does_not_select_research_for_exact_website_update(client):
+    plan = AgentPlannerService().plan(
+        AgentPlanRequest(
+            command=(
+                "Only edit website/templates/index.html. Replace the homepage hero headline with exactly:\n"
+                "Fresh Greek Yogurt\n\n"
+                "Do not change any other file. Do not deploy. Do not install packages. "
+                "Do not use GPT-5.5. Do not run live web search."
+            ),
+            run_type="website_update",
+            allow_file_writes=True,
+            allow_safe_commands=True,
+            allow_search=False,
+        )
+    )
+    ids = [agent.agent_id for agent in plan.selected_agents]
+    assert ids == ["website_agent", "qa_agent", "safe_command_runner"]
+    assert plan.search_needed is False
+    assert plan.search_unavailable is False
+    assert all(agent.agent_id != "research_agent" for agent in plan.selected_agents)
+
+
+def test_allowed_website_research_request_still_selects_research_agent(client):
+    plan = AgentPlannerService().plan(
+        AgentPlanRequest(
+            command="Research latest Greek yogurt competitors with web search before updating homepage copy.",
+            run_type="website_update",
+            allow_file_writes=True,
+            allow_safe_commands=True,
+            allow_search=True,
+        )
+    )
+    ids = [agent.agent_id for agent in plan.selected_agents]
+    assert ids == ["research_agent", "website_agent", "qa_agent", "safe_command_runner"]
+    assert plan.search_needed is True
+    assert plan.search_unavailable is False
+
+
 def test_research_only_selects_research_and_qa(client):
     plan = AgentPlannerService().plan(AgentPlanRequest(command="Research competitors.", allow_search=False))
     assert [agent.agent_id for agent in plan.selected_agents] == ["research_agent", "qa_agent"]

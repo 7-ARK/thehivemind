@@ -71,6 +71,22 @@ def evaluate_approval_needs(payload: RunCreate, run_id: str | None = None, setti
             )
         )
 
+    if payload.mode == "live" and payload.real_coding_max_repair_attempts > 0:
+        approvals.append(
+            _approval(
+                payload,
+                run_id,
+                approval_type="real_coding_repair_attempt",
+                risk_level="high",
+                title="Approval required: Coding repair attempt",
+                reason="A repair attempt can make one additional live OpenRouter coding call after a validation failure.",
+                requested_action="Allow one bounded Real Coding Agent repair attempt for this run.",
+                estimated_cost_usd=payload.max_cost_usd,
+                model=active_settings.real_coding_agent_model,
+                provider="openrouter",
+            )
+        )
+
     keyword_rules = [
         (
             "package_install",

@@ -96,6 +96,28 @@ class AppliedPatchFile(BaseModel):
     size_bytes: int = 0
 
 
+class RepairLoopStatus(BaseModel):
+    repair_enabled: bool = False
+    max_attempts: int = 0
+    attempts_made: int = 0
+    reason_repair_started: str | None = None
+    initial_validation_failed: bool = False
+    initial_validation_command: list[str] = Field(default_factory=list)
+    initial_validation_exit_code: int | None = None
+    repair_patch_accepted: bool | None = None
+    repair_patch_applied: bool = False
+    repair_validation_passed: bool | None = None
+    rollback_attempted: bool = False
+    rollback_succeeded: bool | None = None
+    rollback_failed_files: list[str] = Field(default_factory=list)
+    final_result: str = "not_attempted"
+    not_attempted_reason: str | None = None
+    initial_patch_estimated_cost_usd: float = 0.0
+    repair_patch_estimated_cost_usd: float = 0.0
+    cost_cap_prevented_repair: bool = False
+    artifacts: dict[str, dict[str, Any]] = Field(default_factory=dict)
+
+
 class RealCodingAgentResult(BaseModel):
     enabled: bool
     used: bool
@@ -120,6 +142,7 @@ class RealCodingAgentResult(BaseModel):
     reasoning_tokens: int | None = None
     content_source: str | None = None
     repair_attempts: int = 0
+    repair_loop: RepairLoopStatus = Field(default_factory=RepairLoopStatus)
     task_type: TaskType
     allowed_user_file_scope: AllowedUserFileScope = Field(default_factory=AllowedUserFileScope)
     files_inspected: list[str] = Field(default_factory=list)

@@ -4,6 +4,7 @@ import json
 import pytest
 
 from app.coding.coding_policy import classify_task, prompt_file_scope
+from app.coding.coding_agent_runner import RealCodingAgentRunner
 from app.coding.context_builder import CodingContextBuilder
 from app.coding.patch_applier import PatchApplier
 from app.coding.patch_parser import PatchParseError, parse_proposed_patch_with_route
@@ -18,6 +19,7 @@ from app.orchestration.execution_engine import ExecutionEngine
 from app.providers.base_provider import ProviderResponse
 from app.providers.openrouter_provider import OpenRouterProvider
 from app.projects.project_workspace import ProjectWorkspaceManager
+from app.workspace.schemas import CommandResult
 
 
 def test_real_coding_agent_config_and_model_selection(client):
@@ -27,6 +29,7 @@ def test_real_coding_agent_config_and_model_selection(client):
     assert settings.real_coding_agent_model == "moonshotai/kimi-k2.7-code"
     assert settings.real_coding_agent_fallback_model == "qwen/qwen3-coder"
     assert settings.real_coding_max_output_tokens == 3000
+    assert settings.real_coding_max_repair_attempts == 0
 
     selection = DynamicModelSelector().select(
         ModelSelectionRequest(
@@ -592,6 +595,275 @@ def test_real_coding_final_report_qa_wording_branches(client):
     assert engine._real_coding_qa_report_line(rejected) == "Ran QA after patch rejection. No file changes were applied because patch validation failed."
 
 
+def test_repair_disabled_failed_validation_does_not_attempt_repair(client, monkeypatch):
+    manager = ProjectWorkspaceManager()
+    manager.write_project_file("repair-disabled-test", "website/app.py", 'print("original")\n', "Test", "seed", "app")
+    runner = RealCodingAgentRunner()
+    repair_calls = {"count": 0}
+
+    monkeypatch.setattr(runner, "_mock_patch", lambda context: _repair_test_patch("broken", 'print("broken"\n'))
+
+    def fake_repair(*args, **kwargs):
+        repair_calls["count"] += 1
+        return _repair_test_patch("repair", 'print("repair")\n')
+
+    monkeypatch.setattr(runner, "_mock_repair_patch", fake_repair)
+    monkeypatch.setattr("app.coding.coding_agent_runner.run_validation_commands", lambda **kwargs: [_repair_command_result(exit_code=1)])
+
+    result, _entries, _commands, _event = asyncio.run(
+        runner.run(
+            project_id="repair-disabled-test",
+            run_id="repair-disabled-run",
+            command="Only edit website/app.py. Fix website app validation.",
+            mode="mock",
+            allow_safe_commands=True,
+            max_repair_attempts=0,
+        )
+    )
+    assert result.repair_attempts == 0
+    assert result.repair_loop.final_result == "not_attempted_disabled"
+    assert repair_calls["count"] == 0
+    assert 'print("broken"' in manager.read_project_file("repair-disabled-test", "website/app.py")
+
+
+def test_repair_enabled_failed_validation_then_repair_passes(client, monkeypatch):
+    manager = ProjectWorkspaceManager()
+    manager.write_project_file("repair-success-test", "website/app.py", 'print("original")\n', "Test", "seed", "app")
+    runner = RealCodingAgentRunner()
+    validation_calls = {"count": 0}
+
+    monkeypatch.setattr(runner, "_mock_patch", lambda context: _repair_test_patch("broken", 'print("broken"\n'))
+    monkeypatch.setattr(runner, "_mock_repair_patch", lambda context, first_patch, failed_command: _repair_test_patch("repair", 'print("repair ok")\n'))
+
+    def fake_validation(**kwargs):
+        validation_calls["count"] += 1
+        return [_repair_command_result(exit_code=1 if validation_calls["count"] == 1 else 0)]
+
+    monkeypatch.setattr("app.coding.coding_agent_runner.run_validation_commands", fake_validation)
+    result, entries, commands, _event = asyncio.run(
+        runner.run(
+            project_id="repair-success-test",
+            run_id="repair-success-run",
+            command="Only edit website/app.py. Fix website app validation.",
+            mode="mock",
+            allow_safe_commands=True,
+            max_repair_attempts=1,
+        )
+    )
+    assert result.repair_attempts == 1
+    assert result.repair_loop.final_result == "repaired_successfully"
+    assert result.repair_loop.repair_validation_passed is True
+    assert [entry.path for entry in entries] == ["website/app.py"]
+    assert len(commands) == 2
+    assert 'print("repair ok")' in manager.read_project_file("repair-success-test", "website/app.py")
+
+
+def test_repair_enabled_failed_repair_restores_original_content(client, monkeypatch):
+    manager = ProjectWorkspaceManager()
+    manager.write_project_file("repair-rollback-test", "website/app.py", 'print("original")\n', "Test", "seed", "app")
+    runner = RealCodingAgentRunner()
+
+    monkeypatch.setattr(runner, "_mock_patch", lambda context: _repair_test_patch("broken", 'print("broken"\n'))
+    monkeypatch.setattr(runner, "_mock_repair_patch", lambda context, first_patch, failed_command: _repair_test_patch("still broken", 'print("still broken"\n'))
+    monkeypatch.setattr("app.coding.coding_agent_runner.run_validation_commands", lambda **kwargs: [_repair_command_result(exit_code=1)])
+
+    result, entries, commands, _event = asyncio.run(
+        runner.run(
+            project_id="repair-rollback-test",
+            run_id="repair-rollback-run",
+            command="Only edit website/app.py. Fix website app validation.",
+            mode="mock",
+            allow_safe_commands=True,
+            max_repair_attempts=1,
+        )
+    )
+    assert result.repair_attempts == 1
+    assert result.repair_loop.repair_validation_passed is False
+    assert result.repair_loop.rollback_attempted is True
+    assert result.repair_loop.rollback_succeeded is True
+    assert result.repair_loop.final_result == "failed_safely_original_files_restored"
+    assert entries == []
+    assert len(commands) == 2
+    assert manager.read_project_file("repair-rollback-test", "website/app.py") == 'print("original")\n'
+
+
+def test_repair_cannot_expand_scope_or_modify_protected_paths(client, monkeypatch):
+    manager = ProjectWorkspaceManager()
+    manager.write_project_file("repair-scope-test", "website/app.py", 'print("original")\n', "Test", "seed", "app")
+    runner = RealCodingAgentRunner()
+    monkeypatch.setattr(runner, "_mock_patch", lambda context: _repair_test_patch("broken", 'print("broken"\n'))
+    monkeypatch.setattr("app.coding.coding_agent_runner.run_validation_commands", lambda **kwargs: [_repair_command_result(exit_code=1)])
+
+    monkeypatch.setattr(runner, "_mock_repair_patch", lambda context, first_patch, failed_command: _repair_test_patch("scope break", "[]\n", path="website/data/faqs.json"))
+    scope_result, _entries, _commands, _event = asyncio.run(
+        runner.run(
+            project_id="repair-scope-test",
+            run_id="repair-scope-run",
+            command="Only edit website/app.py. Fix website app validation.",
+            mode="mock",
+            allow_safe_commands=True,
+            max_repair_attempts=1,
+        )
+    )
+    assert scope_result.repair_loop.repair_patch_accepted is False
+    assert "Outside prompt-level exact_file scope" in " ".join(scope_result.repair_loop.artifacts["repair_attempt_1_result"]["violations"])
+    assert manager.read_project_file("repair-scope-test", "website/app.py") == 'print("original")\n'
+
+    manager.write_project_file("repair-protected-test", "website/app.py", 'print("original")\n', "Test", "seed", "app")
+    protected_runner = RealCodingAgentRunner()
+    monkeypatch.setattr(protected_runner, "_mock_patch", lambda context: _repair_test_patch("broken", 'print("broken"\n'))
+    monkeypatch.setattr(protected_runner, "_mock_repair_patch", lambda context, first_patch, failed_command: _repair_test_patch("protected", "TOKEN=bad\n", path=".env"))
+    protected_result, _entries, _commands, _event = asyncio.run(
+        protected_runner.run(
+            project_id="repair-protected-test",
+            run_id="repair-protected-run",
+            command="Only edit website/app.py. Fix website app validation.",
+            mode="mock",
+            allow_safe_commands=True,
+            max_repair_attempts=1,
+        )
+    )
+    assert protected_result.repair_loop.repair_patch_accepted is False
+    assert "protected" in " ".join(protected_result.repair_loop.artifacts["repair_attempt_1_result"]["violations"]).lower()
+    assert manager.read_project_file("repair-protected-test", "website/app.py") == 'print("original")\n'
+
+
+def test_dry_run_and_malformed_provider_output_do_not_repair(client, monkeypatch):
+    manager = ProjectWorkspaceManager()
+    manager.write_project_file("repair-dry-test", "website/app.py", 'print("original")\n', "Test", "seed", "app")
+    runner = RealCodingAgentRunner()
+    repair_calls = {"count": 0}
+    monkeypatch.setattr(runner, "_mock_patch", lambda context: _repair_test_patch("broken", 'print("broken"\n'))
+    monkeypatch.setattr(runner, "_mock_repair_patch", lambda *args, **kwargs: repair_calls.__setitem__("count", repair_calls["count"] + 1) or _repair_test_patch("repair", 'print("repair")\n'))
+    dry_result, _entries, _commands, _event = asyncio.run(
+        runner.run(
+            project_id="repair-dry-test",
+            run_id="repair-dry-run",
+            command="Only edit website/app.py. Fix website app validation.",
+            mode="mock",
+            allow_safe_commands=True,
+            dry_run=True,
+            max_repair_attempts=1,
+        )
+    )
+    assert dry_result.repair_loop.final_result == "not_attempted_dry_run"
+    assert dry_result.patch_applied is False
+    assert repair_calls["count"] == 0
+    assert manager.read_project_file("repair-dry-test", "website/app.py") == 'print("original")\n'
+
+    malformed_runner = RealCodingAgentRunner()
+    monkeypatch.setattr(malformed_runner, "_mock_patch", lambda context: {"files": [{"path": "website/app.py"}]})
+    malformed_result, _entries, _commands, _event = asyncio.run(
+        malformed_runner.run(
+            project_id="repair-dry-test",
+            run_id="repair-malformed-run",
+            command="Only edit website/app.py. Fix website app validation.",
+            mode="mock",
+            allow_safe_commands=True,
+            max_repair_attempts=1,
+        )
+    )
+    assert malformed_result.validation.accepted is False
+    assert malformed_result.repair_attempts == 0
+    assert malformed_result.repair_loop.final_result == "not_attempted"
+
+
+def test_repair_cost_cap_prevents_live_repair_provider_call(client, monkeypatch):
+    manager = ProjectWorkspaceManager()
+    manager.write_project_file("repair-cost-test", "website/app.py", 'print("original")\n', "Test", "seed", "app")
+    runner = RealCodingAgentRunner()
+    calls = {"count": 0}
+
+    async def fake_call_openrouter(**kwargs):
+        calls["count"] += 1
+        return json.dumps(_repair_test_patch("broken", 'print("broken"\n')), kwargs["model_id"], True, {"requested_max_tokens": 3000}, False
+
+    monkeypatch.setattr(runner, "_assert_live_coding_allowed", lambda allow_live_coding_model_call: None)
+    monkeypatch.setattr(runner, "_call_openrouter", fake_call_openrouter)
+    monkeypatch.setattr("app.coding.coding_agent_runner.run_validation_commands", lambda **kwargs: [_repair_command_result(exit_code=1)])
+    result, _entries, _commands, _event = asyncio.run(
+        runner.run(
+            project_id="repair-cost-test",
+            run_id="repair-cost-run",
+            command="Only edit website/app.py. Fix website app validation.",
+            mode="live",
+            allow_safe_commands=True,
+            allow_live_coding_model_call=True,
+            max_repair_attempts=1,
+            max_cost_usd=0.000001,
+        )
+    )
+    assert calls["count"] == 1
+    assert result.repair_loop.cost_cap_prevented_repair is True
+    assert result.repair_loop.final_result == "not_attempted_cost_cap"
+
+
+def test_repair_artifacts_run_detail_and_memory_free_context(client, monkeypatch):
+    manager = ProjectWorkspaceManager()
+    manager.write_project_file("repair-artifact-test", "website/app.py", 'print("original")\n', "Test", "seed", "app")
+    validation_calls = {"count": 0}
+
+    monkeypatch.setattr("app.coding.coding_agent_runner.RealCodingAgentRunner._mock_patch", lambda self, context: _repair_test_patch("broken", 'print("broken"\n'))
+    monkeypatch.setattr("app.coding.coding_agent_runner.RealCodingAgentRunner._mock_repair_patch", lambda self, context, first_patch, failed_command: _repair_test_patch("repair", 'print("repair ok")\n'))
+
+    def fake_validation(**kwargs):
+        validation_calls["count"] += 1
+        return [_repair_command_result(exit_code=1 if validation_calls["count"] == 1 else 0)]
+
+    monkeypatch.setattr("app.coding.coding_agent_runner.run_validation_commands", fake_validation)
+    response = client.post(
+        "/api/runs",
+        json={
+            "command": "Only edit website/app.py. Fix website app validation.",
+            "mode": "mock",
+            "run_type": "website_update",
+            "project_id": "repair-artifact-test",
+            "allow_file_writes": True,
+            "allow_safe_commands": True,
+            "use_memory": False,
+            "use_real_coding_agent": True,
+            "real_coding_max_repair_attempts": 1,
+        },
+    )
+    assert response.status_code == 200
+    run = response.json()
+    detail = run["usage_summary"]["real_coding_agent"]
+    assert detail["repair_loop"]["repair_enabled"] is True
+    assert detail["repair_loop"]["attempts_made"] == 1
+    assert detail["repair_loop"]["final_result"] == "repaired_successfully"
+    assert "Initial validation failed, repair validation passed" in " ".join(run["final_output"]["what_was_done"])
+    artifact_names = {artifact["name"] for artifact in run["artifacts"]}
+    assert {"repair_policy.json", "repair_attempt_1_context.json", "repair_attempt_1_result.json", "repair_validation_result.json"} <= artifact_names
+    context_artifact = next(artifact for artifact in run["artifacts"] if artifact["name"] == "repair_attempt_1_context.json")
+    context_payload = client.get(f"/api/runs/{run['run_id']}/artifacts/{context_artifact['id']}").json()["content"]
+    assert "memory_used" not in context_payload
+    assert "api_key" not in context_payload.lower()
+    assert "private_key" not in context_payload.lower()
+
+
+def _repair_test_patch(summary: str, content: str, path: str = "website/app.py") -> dict:
+    return {
+        "summary": summary,
+        "task_type": "website_ui_update",
+        "files": [{"path": path, "content": content, "reason": summary}],
+        "validation_commands": [{"cmd": ["python", "-m", "py_compile", "website/app.py"], "reason": "Validate app syntax."}],
+        "risk_notes": ["test patch"],
+    }
+
+
+def _repair_command_result(exit_code: int) -> CommandResult:
+    return CommandResult(
+        command=["python", "-m", "py_compile", "website/app.py"],
+        cwd=".",
+        exit_code=exit_code,
+        stdout="",
+        stderr="SyntaxError: mocked validation failure" if exit_code else "",
+        duration_ms=1,
+        allowed=True,
+        executable_command=["python", "-m", "py_compile", "website/app.py"],
+    )
+
+
 def test_rejected_patch_qa_explains_validation_reason(client):
     result = RealCodingAgentResult(
         enabled=True,
@@ -880,6 +1152,65 @@ def test_validation_reporting_separates_patch_and_project_sanity(client):
     assert detail["validation_commands"] == []
     assert sanity["safe_commands_executed"] == 1
     assert "does not directly validate unchanged HTML/JSON copy" in sanity["reason"]
+    safe_event = next(event for event in run["events"] if event["agent_name"] == "Safe Command Runner")
+    assert safe_event["action_summary"] == "Ran project sanity validation with safe command runner"
+    assert "python" in safe_event["output_summary"]
+    assert "exit=0" in safe_event["output_summary"]
+    commands = client.get(f"/api/runs/{run['run_id']}/commands").json()
+    assert len(commands) == 1
+    assert commands[0]["command"] == ["python", "-m", "py_compile", "website/app.py"]
+
+
+def test_safe_command_runner_zero_commands_reports_truthfully(client):
+    manager = ProjectWorkspaceManager()
+    manager.write_project_file("zero-command-report-test", "website/templates/index.html", "<section><h1>Old</h1><p>Old sub</p></section>\n", "Test", "seed", "home")
+    response = client.post(
+        "/api/runs",
+        json={
+            "command": "Only edit website/templates/index.html. Replace the homepage hero headline with exactly:\nFresh Greek Yogurt\n\nDo not deploy. Do not install packages. Do not use GPT-5.5. Do not run live web search.",
+            "mode": "mock",
+            "run_type": "website_update",
+            "project_id": "zero-command-report-test",
+            "allow_file_writes": True,
+            "allow_safe_commands": True,
+            "use_real_coding_agent": True,
+            "allow_web_search": False,
+            "use_memory": False,
+            "real_coding_dry_run": True,
+            "real_coding_max_repair_attempts": 1,
+        },
+    )
+    assert response.status_code == 200
+    run = response.json()
+    assert run["metrics"]["agents_used"] == 3
+    assert run["usage_summary"]["search_needed"] is False
+    assert run["usage_summary"]["search_unavailable"] is False
+    selected_agent_ids = [agent["agent_id"] for agent in run["agent_plan"]["selected_agents"]]
+    assert selected_agent_ids == ["website_agent", "qa_agent", "safe_command_runner"]
+    assert "Research Agent" not in {event["agent_name"] for event in run["events"]}
+    artifact_names = {artifact["name"] for artifact in run["artifacts"]}
+    assert "research_brief.md" not in artifact_names
+    assert "research_sources.json" not in artifact_names
+    detail = run["usage_summary"]["real_coding_agent"]
+    assert detail["dry_run"] is True
+    assert detail["patch_applied"] is False
+    assert detail["allowed_user_file_scope"]["scope_type"] == "exact_file"
+    assert detail["allowed_user_file_scope"]["allowed_user_files"] == ["website/templates/index.html"]
+    assert detail["validation"]["accepted"] is True
+    assert run["project_files_created"] == []
+    assert run["project_files_updated"] == []
+    assert "Old" in manager.read_project_file("zero-command-report-test", "website/templates/index.html")
+    sanity = run["usage_summary"]["project_sanity_validation"]
+    assert sanity["safe_commands_executed"] == 0
+    assert sanity["commands"] == []
+    assert sanity["result"] == "not_run"
+    assert run["commands_run"] == []
+    commands = client.get(f"/api/runs/{run['run_id']}/commands").json()
+    assert commands == []
+    safe_event = next(event for event in run["events"] if event["agent_name"] == "Safe Command Runner")
+    assert safe_event["action_summary"] == "Safe Command Runner completed; no validation command was required or executed."
+    assert safe_event["output_summary"] == "Safe Command Runner completed; no validation command was required or executed."
+    assert "Ran project sanity validation" not in safe_event["action_summary"]
 
 
 def test_live_real_coding_call_blocked_without_flags(client):
@@ -901,6 +1232,30 @@ def test_live_real_coding_call_blocked_without_flags(client):
     payload = response.json()
     assert payload["status"] == "approval_required"
     assert any(item["approval_type"] == "live_coding_model" for item in payload["approval_requests"])
+
+
+def test_live_repair_attempt_requires_explicit_approval(client):
+    response = client.post(
+        "/api/runs",
+        json={
+            "command": "Improve homepage copy.",
+            "mode": "live",
+            "run_type": "website_update",
+            "project_id": "live-repair-approval-test",
+            "allow_file_writes": True,
+            "allow_safe_commands": True,
+            "use_real_coding_agent": True,
+            "allow_live_coding_model_call": True,
+            "real_coding_max_repair_attempts": 1,
+            "max_cost_usd": 0.05,
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "approval_required"
+    approval_types = {item["approval_type"] for item in payload["approval_requests"]}
+    assert "live_coding_model" in approval_types
+    assert "real_coding_repair_attempt" in approval_types
 
 
 def test_live_invalid_real_coding_output_saves_diagnostic_and_changes_no_user_files(client, monkeypatch):

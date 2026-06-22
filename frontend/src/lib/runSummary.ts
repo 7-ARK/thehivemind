@@ -1,4 +1,4 @@
-import { ArtifactRecord, CommandResult, ProjectChange, RunEvent, RunResult } from "../types";
+import { ArtifactRecord, CommandResult, ProjectChange, RunResult } from "../types";
 
 export interface FileSummaryItem {
   path: string;
@@ -51,7 +51,7 @@ export function collectRunCommands(run: RunResult, endpointCommands: CommandResu
   if (run.workspace?.commands_run?.length) return run.workspace.commands_run;
   if (run.project_workspace?.commands_run?.length) return run.project_workspace.commands_run;
   if (endpointCommands.length) return endpointCommands;
-  return commandsFromEvents(run.events ?? []);
+  return [];
 }
 
 export function mergeArtifacts(runArtifacts: ArtifactRecord[], endpointArtifacts: ArtifactRecord[]): ArtifactRecord[] {
@@ -68,23 +68,4 @@ function addPathList(target: Map<string, FileSummaryItem>, paths: string[], oper
       target.set(path, { path, operation });
     }
   }
-}
-
-function commandsFromEvents(events: RunEvent[]): CommandResult[] {
-  return events
-    .filter((event) => event.agent_name === "Safe Command Runner")
-    .map((event) => {
-      const match = event.output_summary.match(/\[(.*?)\].*exit=([-0-9]+)/);
-      const command = match?.[1]?.split(",").map((part) => part.trim().replace(/^['"]|['"]$/g, "")) ?? ["Safe Command Runner event"];
-      return {
-        command,
-        cwd: ".",
-        exit_code: Number(match?.[2] ?? 0),
-        stdout: "",
-        stderr: "",
-        duration_ms: 0,
-        allowed: !event.output_summary.toLowerCase().includes("blocked"),
-        blocked_reason: event.output_summary.toLowerCase().includes("blocked") ? event.output_summary : null,
-      };
-    });
 }

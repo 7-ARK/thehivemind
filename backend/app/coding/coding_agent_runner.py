@@ -6,11 +6,11 @@ from typing import Any
 
 from fastapi import HTTPException
 
-from app.coding.coding_policy import classify_task
+from app.coding.coding_policy import classify_task, is_protected_path
 from app.coding.context_builder import CodingContextBuilder
 from app.coding.patch_applier import PatchApplier
 from app.coding.patch_parser import PARSER_ROUTES, PatchParseError, parse_proposed_patch_with_route
-from app.coding.schemas import CodingContext, ProposedPatch, RealCodingAgentResult
+from app.coding.schemas import CodingContext, ProposedPatch, RealCodingAgentResult, RepairLoopStatus
 from app.coding.validation import run_validation_commands, validation_commands_for_patch
 from app.core.config import Settings, get_settings
 from app.core.models import RunEvent
@@ -18,6 +18,7 @@ from app.core.model_registry import get_model_metadata
 from app.core.cost_estimator import estimate_cost_usd, estimate_tokens
 from app.projects.schemas import ProjectFileWriteResult
 from app.providers.provider_router import generate_with_provider
+from app.workspace.schemas import CommandResult
 
 
 class RealCodingAgentRunner:
@@ -40,10 +41,13 @@ class RealCodingAgentRunner:
         allow_live_coding_model_call: bool = False,
         dry_run: bool = False,
         max_files: int | None = None,
+        max_repair_attempts: int | None = None,
+        max_cost_usd: float | None = None,
     ) -> tuple[RealCodingAgentResult, list[ProjectFileWriteResult], list[Any], RunEvent]:
         selected_model = model_id or self.settings.real_coding_agent_model
         fallback_model = fallback_model_id or self.settings.real_coding_agent_fallback_model
         effective_max_files = max_files or max(self.settings.real_coding_max_input_files, self.settings.real_coding_max_output_files)
+        effective_max_repair_attempts = min(1, max(0, max_repair_attempts if max_repair_attempts is not None else self.settings.real_coding_max_repair_attempts))
         task_type = classify_task(command)
         context = self.context_builder.build(
             project_id=project_id,
@@ -71,6 +75,10 @@ class RealCodingAgentRunner:
         notes = [
             "GPT-5.5 was not used because coding worker tasks use OpenRouter coding models and GPT-5.5 remains CEO-gated.",
         ]
+        repair_loop = RepairLoopStatus(
+            repair_enabled=effective_max_repair_attempts > 0,
+            max_attempts=effective_max_repair_attempts,
+        )
 
         if mode == "live":
             self._assert_live_coding_allowed(allow_live_coding_model_call)
@@ -93,6 +101,9 @@ class RealCodingAgentRunner:
             response_format_requested = "none"
             actual_output_tokens = estimate_tokens(response_text)
             content_source = "mock"
+        initial_input_tokens = estimate_tokens(prompt)
+        initial_output_tokens = actual_output_tokens if actual_output_tokens is not None else estimate_tokens(response_text)
+        repair_loop.initial_patch_estimated_cost_usd = estimate_cost_usd(selected_model, initial_input_tokens, initial_output_tokens)
 
         try:
             parsed = parse_proposed_patch_with_route(response_text)
@@ -143,6 +154,7 @@ class RealCodingAgentRunner:
                 )
             if validation.accepted:
                 effective_dry_run = dry_run or self.settings.real_coding_dry_run
+                snapshot = None if effective_dry_run else self._snapshot_files(project_id, patch)
                 applied_entries, applied_files = self.applier.apply(
                     project_id=project_id,
                     run_id=run_id,
@@ -157,6 +169,30 @@ class RealCodingAgentRunner:
                     allow_safe_commands=allow_safe_commands,
                     settings=self.settings,
                 )
+                repair_loop, applied_entries, applied_files, validation_results = await self._maybe_repair(
+                    project_id=project_id,
+                    run_id=run_id,
+                    command=command,
+                    mode=mode,
+                    context=context,
+                    first_patch=patch,
+                    first_validation=validation,
+                    first_validation_results=validation_results,
+                    first_snapshot=snapshot,
+                    task_type=task_type,
+                    selected_model=selected_model,
+                    fallback_model=fallback_model,
+                    allow_live_coding_model_call=allow_live_coding_model_call,
+                    allow_safe_commands=allow_safe_commands,
+                    dry_run=effective_dry_run,
+                    effective_max_files=effective_max_files,
+                    effective_max_repair_attempts=effective_max_repair_attempts,
+                    initial_estimated_cost_usd=repair_loop.initial_patch_estimated_cost_usd,
+                    max_cost_usd=max_cost_usd,
+                    applied_files=applied_files,
+                    applied_entries=applied_entries,
+                    validation_results=validation_results,
+                )
                 dry_run = effective_dry_run
             else:
                 applied_entries = []
@@ -167,7 +203,9 @@ class RealCodingAgentRunner:
         no_change_reason = None
         if parse_error:
             no_change_reason = "No user-facing changes were applied because the coding provider response was invalid or empty."
-        if validation.accepted and not patch_applied and not (dry_run or self.settings.real_coding_dry_run):
+        if repair_loop.rollback_attempted:
+            no_change_reason = "Repair validation failed; original pre-run file contents were restored."
+        elif validation.accepted and not patch_applied and not (dry_run or self.settings.real_coding_dry_run):
             no_change_reason = "Requested content already matches the current file, or no safe improvement was necessary."
         memory_items = patch.memory_used or context.memory_used[:3]
         memory_exclusions = [
@@ -199,12 +237,13 @@ class RealCodingAgentRunner:
             actual_output_tokens=actual_output_tokens,
             reasoning_tokens=reasoning_tokens,
             content_source=content_source,
-            repair_attempts=0,
+            repair_attempts=repair_loop.attempts_made,
+            repair_loop=repair_loop,
             task_type=task_type,
             allowed_user_file_scope=context.allowed_user_file_scope,
             files_inspected=[item.path for item in context.file_map if not item.protected],
             files_selected=[item.path for item in context.selected_files],
-            files_changed=[entry.path for entry in applied_entries] if patch_applied else [],
+            files_changed=[entry.path for entry in applied_entries] if patch_applied and not repair_loop.rollback_attempted else [],
             rejected_files=[change.path for change in patch.files_to_change] if not validation.accepted else [],
             validation=validation,
             proposed_patch=patch,
@@ -224,6 +263,308 @@ class RealCodingAgentRunner:
         )
         return result, applied_entries, validation_results, event
 
+    async def _maybe_repair(
+        self,
+        *,
+        project_id: str,
+        run_id: str,
+        command: str,
+        mode: str,
+        context: CodingContext,
+        first_patch: ProposedPatch,
+        first_validation: Any,
+        first_validation_results: list[CommandResult],
+        first_snapshot: dict[str, Any] | None,
+        task_type: str,
+        selected_model: str,
+        fallback_model: str | None,
+        allow_live_coding_model_call: bool,
+        allow_safe_commands: bool,
+        dry_run: bool,
+        effective_max_files: int,
+        effective_max_repair_attempts: int,
+        initial_estimated_cost_usd: float,
+        max_cost_usd: float | None,
+        applied_files: list[Any],
+        applied_entries: list[ProjectFileWriteResult],
+        validation_results: list[CommandResult],
+    ) -> tuple[RepairLoopStatus, list[ProjectFileWriteResult], list[Any], list[CommandResult]]:
+        status = RepairLoopStatus(
+            repair_enabled=effective_max_repair_attempts > 0,
+            max_attempts=effective_max_repair_attempts,
+            initial_patch_estimated_cost_usd=initial_estimated_cost_usd,
+        )
+        status.artifacts["repair_policy"] = {
+            "repair_enabled": status.repair_enabled,
+            "max_attempts": status.max_attempts,
+            "eligible_only_after": "accepted patch, applied patch, approved safe validation command executed, validation command failed",
+            "dry_run": dry_run,
+        }
+        failed_command = _first_failed_allowed_command(first_validation_results)
+        if not status.repair_enabled:
+            status.not_attempted_reason = "Repair disabled by request/config."
+            status.final_result = "not_attempted_disabled"
+            return status, applied_entries, applied_files, validation_results
+        if dry_run:
+            status.not_attempted_reason = "Dry-run mode never applies patches, repairs, or rollback."
+            status.final_result = "not_attempted_dry_run"
+            return status, applied_entries, applied_files, validation_results
+        if not first_validation.accepted:
+            status.not_attempted_reason = "Patch schema/scope/protected-path validation failed before apply."
+            status.final_result = "not_attempted_patch_rejected"
+            return status, applied_entries, applied_files, validation_results
+        if not applied_entries:
+            status.not_attempted_reason = "No initial file changes were applied."
+            status.final_result = "not_attempted_no_initial_apply"
+            return status, applied_entries, applied_files, validation_results
+        if failed_command is None:
+            status.not_attempted_reason = "No approved safe validation command failed."
+            status.final_result = "not_attempted_no_failed_validation"
+            return status, applied_entries, applied_files, validation_results
+
+        repair_prompt = self._repair_prompt(
+            command=command,
+            context=context,
+            first_patch=first_patch,
+            failed_command=failed_command,
+        )
+        repair_estimated_cost = estimate_cost_usd(
+            selected_model,
+            estimate_tokens(repair_prompt),
+            self.settings.real_coding_max_output_tokens,
+        )
+        status.repair_patch_estimated_cost_usd = repair_estimated_cost
+        if mode == "live" and max_cost_usd is not None and initial_estimated_cost_usd + repair_estimated_cost > max_cost_usd:
+            status.cost_cap_prevented_repair = True
+            status.not_attempted_reason = "Repair provider call skipped because estimated repair cost would exceed max_cost_usd."
+            status.final_result = "not_attempted_cost_cap"
+            return status, applied_entries, applied_files, validation_results
+
+        status.attempts_made = 1
+        status.reason_repair_started = "Initial approved safe validation command failed after patch application."
+        status.initial_validation_failed = True
+        status.initial_validation_command = failed_command.command
+        status.initial_validation_exit_code = failed_command.exit_code
+        status.artifacts["repair_attempt_1_context"] = self._repair_context_artifact(
+            command=command,
+            context=context,
+            first_patch=first_patch,
+            failed_command=failed_command,
+        )
+
+        repair_response = await self._repair_response_text(
+            mode=mode,
+            prompt=repair_prompt,
+            context=context,
+            first_patch=first_patch,
+            failed_command=failed_command,
+            selected_model=selected_model,
+            fallback_model=fallback_model,
+            run_id=run_id,
+            project_id=project_id,
+            allow_live_coding_model_call=allow_live_coding_model_call,
+        )
+        try:
+            repair_patch = parse_proposed_patch_with_route(repair_response).patch
+            repair_validation = self.applier.validate(
+                repair_patch,
+                task_type=task_type,  # type: ignore[arg-type]
+                file_scope=context.allowed_user_file_scope,
+                max_output_files=effective_max_files,
+                project_id=project_id,
+            )
+        except PatchParseError as exc:
+            repair_patch = None
+            repair_validation = first_validation.model_copy(update={"accepted": False, "violations": [str(exc)]})
+
+        status.repair_patch_accepted = repair_validation.accepted
+        status.artifacts["repair_attempt_1_result"] = {
+            "attempt_number": 1,
+            "repair_enabled": True,
+            "repair_patch_accepted": repair_validation.accepted,
+            "violations": repair_validation.violations,
+            "warnings": repair_validation.warnings,
+            "repair_patch": repair_patch.model_dump() if repair_patch else None,
+        }
+        if not repair_patch or not repair_validation.accepted:
+            rollback = self._restore_snapshot(first_snapshot)
+            status.rollback_attempted = True
+            status.rollback_succeeded = rollback["rollback_succeeded"]
+            status.rollback_failed_files = rollback["rollback_failed_files"]
+            status.final_result = "failed_safely_original_files_restored" if rollback["rollback_succeeded"] else "failed_rollback_error"
+            status.artifacts["rollback_result"] = rollback
+            return status, [], applied_files, validation_results
+
+        repair_entries, repair_applied_files = self.applier.apply(
+            project_id=project_id,
+            run_id=run_id,
+            patch=repair_patch,
+            dry_run=False,
+            agent_name="Real Coding Agent Repair",
+        )
+        status.repair_patch_applied = bool(repair_entries)
+        repair_validation_results = run_validation_commands(
+            project_id=project_id,
+            run_id=run_id,
+            commands=[failed_command.command],
+            allow_safe_commands=allow_safe_commands,
+            settings=self.settings,
+        )
+        validation_results = [*validation_results, *repair_validation_results]
+        repair_command = repair_validation_results[0] if repair_validation_results else None
+        repair_passed = bool(repair_command and repair_command.allowed and repair_command.exit_code == 0)
+        status.repair_validation_passed = repair_passed
+        status.artifacts["repair_validation_result"] = {
+            "attempt_number": 1,
+            "safe_command": failed_command.command,
+            "exit_code": repair_command.exit_code if repair_command else None,
+            "repair_validation_passed": repair_passed,
+        }
+        if repair_passed:
+            status.final_result = "repaired_successfully"
+            return status, repair_entries, repair_applied_files, validation_results
+
+        rollback = self._restore_snapshot(first_snapshot)
+        status.rollback_attempted = True
+        status.rollback_succeeded = rollback["rollback_succeeded"]
+        status.rollback_failed_files = rollback["rollback_failed_files"]
+        status.final_result = "failed_safely_original_files_restored" if rollback["rollback_succeeded"] else "failed_rollback_error"
+        status.artifacts["rollback_result"] = rollback
+        return status, [], [*applied_files, *repair_applied_files], validation_results
+
+    def _snapshot_files(self, project_id: str, patch: ProposedPatch) -> dict[str, Any]:
+        root = self.applier.manager.get_project_root(project_id)
+        manifest_path = root / "manifest.json"
+        files = {}
+        for change in patch.files_to_change:
+            relative = change.path.replace("\\", "/")
+            protected, reason = is_protected_path(relative)
+            if protected:
+                raise HTTPException(status_code=400, detail=f"Cannot snapshot protected path {relative}: {reason}")
+            target = self.applier.manager.resolve(project_id, relative)
+            files[relative] = {
+                "existed": target.exists(),
+                "content": target.read_text(encoding="utf-8") if target.exists() else None,
+            }
+        return {
+            "project_id": project_id,
+            "files": files,
+            "manifest_content": manifest_path.read_text(encoding="utf-8") if manifest_path.exists() else None,
+        }
+
+    def _restore_snapshot(self, snapshot: dict[str, Any] | None) -> dict[str, Any]:
+        if not snapshot:
+            return {"rollback_attempted": True, "rollback_succeeded": False, "rollback_failed_files": ["snapshot_missing"]}
+        project_id = snapshot["project_id"]
+        root = self.applier.manager.get_project_root(project_id)
+        failed = []
+        for relative, payload in snapshot["files"].items():
+            try:
+                target = self.applier.manager.resolve(project_id, relative)
+                if payload["existed"]:
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_text(payload["content"] or "", encoding="utf-8")
+                elif target.exists():
+                    target.unlink()
+            except Exception:
+                failed.append(relative)
+        try:
+            manifest_content = snapshot.get("manifest_content")
+            if manifest_content is not None:
+                (root / "manifest.json").write_text(manifest_content, encoding="utf-8")
+        except Exception:
+            failed.append("manifest.json")
+        return {
+            "rollback_attempted": True,
+            "rollback_succeeded": not failed,
+            "rollback_failed_files": failed,
+        }
+
+    async def _repair_response_text(
+        self,
+        *,
+        mode: str,
+        prompt: str,
+        context: CodingContext,
+        first_patch: ProposedPatch,
+        failed_command: CommandResult,
+        selected_model: str,
+        fallback_model: str | None,
+        run_id: str,
+        project_id: str,
+        allow_live_coding_model_call: bool,
+    ) -> str:
+        if mode == "mock":
+            return json.dumps(self._mock_repair_patch(context, first_patch, failed_command), indent=2)
+        self._assert_live_coding_allowed(allow_live_coding_model_call)
+        response_text, _model, _live, _metadata, _fallback = await self._call_openrouter(
+            prompt=prompt,
+            model_id=selected_model,
+            fallback_model_id=fallback_model or self.settings.real_coding_agent_fallback_model,
+            run_id=run_id,
+            project_id=project_id,
+            task_suffix="repair_attempt_1",
+        )
+        return response_text
+
+    def _repair_prompt(self, *, command: str, context: CodingContext, first_patch: ProposedPatch, failed_command: CommandResult) -> str:
+        return (
+            "You are TheHiveMind Real Coding Agent repair loop v1. Return strict JSON only. "
+            "Create one replacement patch inside the same approved file scope. Do not add files outside scope.\n\n"
+            + json.dumps(
+                self._repair_context_artifact(command=command, context=context, first_patch=first_patch, failed_command=failed_command),
+                indent=2,
+            )
+        )
+
+    def _repair_context_artifact(self, *, command: str, context: CodingContext, first_patch: ProposedPatch, failed_command: CommandResult) -> dict[str, Any]:
+        changed_paths = [change.path.replace("\\", "/") for change in first_patch.files_to_change]
+        current_files = {}
+        for path in changed_paths[: self.settings.real_coding_max_output_files]:
+            try:
+                content = self.applier.manager.read_project_file(context.project_id, path)
+            except Exception:
+                content = ""
+            current_files[path] = _redact_preview(content[:1200])
+        return {
+            "attempt_number": 1,
+            "original_user_request": command,
+            "allowed_user_file_scope": context.allowed_user_file_scope.model_dump(),
+            "current_failed_file_content": current_files,
+            "safe_validation_command": failed_command.command,
+            "exit_code": failed_command.exit_code,
+            "stdout_summary": _redact_preview((failed_command.stdout or "")[-1200:]),
+            "stderr_summary": _redact_preview((failed_command.stderr or "")[-1200:]),
+            "first_patch_summary": first_patch.summary,
+            "instruction": "Return only a valid structured patch JSON object. Stay inside allowed_user_file_scope.",
+        }
+
+    def _mock_repair_patch(self, context: CodingContext, first_patch: ProposedPatch, failed_command: CommandResult) -> dict[str, Any]:
+        changes = []
+        for change in first_patch.files_to_change:
+            path = change.path.replace("\\", "/")
+            if path.endswith(".py"):
+                content = 'print("Real Coding Agent repair validation passed")\n'
+            else:
+                content = (change.new_content or "").rstrip() + "\n<!-- Repair attempt: validation-safe content retained. -->\n"
+            changes.append(
+                {
+                    "path": path,
+                    "reason": "Repair the failed safe validation command without expanding file scope.",
+                    "change_type": "modify",
+                    "new_content": content,
+                }
+            )
+        return {
+            "summary": "Mock repair patch generated after safe validation failure.",
+            "task_type": context.task_type,
+            "files_to_change": changes,
+            "files_read": [item.path for item in context.selected_files],
+            "validation_commands": [{"cmd": failed_command.command, "reason": "Rerun the same approved validation command after repair."}],
+            "risk_notes": ["One bounded repair attempt only.", "Same prompt-level file scope retained."],
+            "memory_used": context.memory_used[:4],
+        }
+
     def _assert_live_coding_allowed(self, allow_live_coding_model_call: bool) -> None:
         if not self.settings.enable_real_coding_agent:
             raise HTTPException(status_code=403, detail="Real Coding Agent is disabled.")
@@ -236,7 +577,7 @@ class RealCodingAgentRunner:
         if not self.settings.openrouter_api_key:
             raise HTTPException(status_code=400, detail="OpenRouter API key is not configured.")
 
-    async def _call_openrouter(self, *, prompt: str, model_id: str, fallback_model_id: str, run_id: str, project_id: str) -> tuple[str, str, bool, dict[str, Any], bool]:
+    async def _call_openrouter(self, *, prompt: str, model_id: str, fallback_model_id: str, run_id: str, project_id: str, task_suffix: str = "real_coding_agent") -> tuple[str, str, bool, dict[str, Any], bool]:
         messages = [
             {"role": "system", "content": "You are a careful coding agent. Return JSON only: no markdown fences, no prose, no commentary."},
             {"role": "user", "content": prompt},
@@ -252,9 +593,9 @@ class RealCodingAgentRunner:
                 max_output_tokens=max_output_tokens,
                 temperature=0.1,
                 run_id=run_id,
-                task_id=f"{run_id}:real_coding_agent",
-                agent_name="Real Coding Agent",
-                agent_role="Project file editing",
+                task_id=f"{run_id}:{task_suffix}",
+                agent_name="Real Coding Agent" if task_suffix == "real_coding_agent" else "Real Coding Agent Repair",
+                agent_role="Project file editing" if task_suffix == "real_coding_agent" else "Bounded coding repair",
                 project_id=project_id,
                 request_type="real_coding_agent",
                 response_format=response_format,
@@ -270,9 +611,9 @@ class RealCodingAgentRunner:
                 max_output_tokens=max_output_tokens,
                 temperature=0.1,
                 run_id=run_id,
-                task_id=f"{run_id}:real_coding_agent:fallback",
-                agent_name="Real Coding Agent",
-                agent_role="Project file editing",
+                task_id=f"{run_id}:{task_suffix}:fallback",
+                agent_name="Real Coding Agent" if task_suffix == "real_coding_agent" else "Real Coding Agent Repair",
+                agent_role="Project file editing" if task_suffix == "real_coding_agent" else "Bounded coding repair",
                 project_id=project_id,
                 request_type="real_coding_agent",
                 response_format=response_format,
@@ -386,6 +727,13 @@ def _response_metadata_with_tokens(metadata: dict[str, Any], output_tokens: int)
     enriched = dict(metadata)
     enriched.setdefault("actual_output_tokens", output_tokens)
     return enriched
+
+
+def _first_failed_allowed_command(results: list[CommandResult]) -> CommandResult | None:
+    for result in results:
+        if result.allowed and result.exit_code != 0:
+            return result
+    return None
 
 
 def _response_format_name(value: Any) -> str:

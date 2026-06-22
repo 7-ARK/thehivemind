@@ -420,6 +420,7 @@ export async function submitOrchestration(command: string): Promise<Orchestratio
     real_coding_dry_run: false,
     real_coding_model: "moonshotai/kimi-k2.7-code",
     real_coding_max_files: 12,
+    real_coding_max_repair_attempts: 0,
     max_cost_usd: 0.25,
   });
 

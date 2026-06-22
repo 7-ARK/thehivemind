@@ -175,6 +175,7 @@ function RunRealCodingPanel({ run }: { run: RunResult }) {
   const sanityCommands = Array.isArray(sanity.commands) ? sanity.commands : run.commands_run ?? [];
   const memoryUsed = Array.isArray(detail.memory_used) ? detail.memory_used : [];
   const memoryExclusions = Array.isArray(detail.memory_exclusions) ? detail.memory_exclusions : [];
+  const repair = detail.repair_loop ?? {};
   return (
     <section className="bg-[#1a1b1e] border border-[#2c2e33] rounded-lg p-4 space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -218,6 +219,18 @@ function RunRealCodingPanel({ run }: { run: RunResult }) {
       )}
       <MiniList title="Files Changed" items={filesChanged} empty="No files changed." />
       {rejectedFiles.length > 0 && <MiniList title="Rejected Files" items={rejectedFiles} empty="No rejected files." />}
+      <div className="bg-[#141517] border border-[#2c2e33] rounded p-3">
+        <h4 className="text-[10px] text-[#909296] uppercase font-mono font-bold">Repair Loop</h4>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 mt-3">
+          <Metric label="Repair Enabled" value={String(Boolean(repair.repair_enabled))} />
+          <Metric label="Attempts" value={`${String(repair.attempts_made ?? detail.repair_attempts ?? 0)} / ${String(repair.max_attempts ?? 0)}`} />
+          <Metric label="Initial Validation" value={repair.initial_validation_failed ? "failed" : "not_failed"} />
+          <Metric label="Repair Validation" value={repair.repair_validation_passed === true ? "passed" : repair.repair_validation_passed === false ? "failed" : "n/a"} />
+          <Metric label="Rollback" value={repair.rollback_attempted ? (repair.rollback_succeeded ? "succeeded" : "failed") : "not_attempted"} />
+          <Metric label="Final Result" value={String(repair.final_result ?? "not_attempted")} />
+        </div>
+        {repair.not_attempted_reason && <p className="text-xs text-[#909296] mt-2">{String(repair.not_attempted_reason)}</p>}
+      </div>
       {detail.no_change_reason && (
         <div className="bg-[#141517] border border-[#2c2e33] rounded p-3">
           <h4 className="text-[10px] text-[#909296] uppercase font-mono font-bold">No Change Reason</h4>

@@ -19,6 +19,7 @@ def client(monkeypatch, tmp_path):
     monkeypatch.setenv("REAL_CODING_MAX_INPUT_FILES", "12")
     monkeypatch.setenv("REAL_CODING_MAX_OUTPUT_FILES", "8")
     monkeypatch.setenv("REAL_CODING_MAX_OUTPUT_TOKENS", "3000")
+    monkeypatch.setenv("REAL_CODING_MAX_REPAIR_ATTEMPTS", "0")
     monkeypatch.setenv("REAL_CODING_DRY_RUN", "false")
     monkeypatch.setenv("OPENAI_API_KEY", "")
     monkeypatch.setenv("OPENAI_ADMIN_API_KEY", "")

@@ -98,6 +98,7 @@ async def execute_run(
     real_coding_dry_run: bool = False,
     real_coding_model: str | None = None,
     real_coding_max_files: int | None = None,
+    real_coding_max_repair_attempts: int = 0,
     max_cost_usd: float | None = None,
 ) -> RunResult:
     return await ExecutionEngine().execute_run(
@@ -115,6 +116,7 @@ async def execute_run(
         real_coding_dry_run=real_coding_dry_run,
         real_coding_model=real_coding_model,
         real_coding_max_files=real_coding_max_files,
+        real_coding_max_repair_attempts=real_coding_max_repair_attempts,
         max_cost_usd=max_cost_usd,
     )
 
@@ -176,6 +178,7 @@ class ExecutionEngine:
         real_coding_dry_run: bool = False,
         real_coding_model: str | None = None,
         real_coding_max_files: int | None = None,
+        real_coding_max_repair_attempts: int = 0,
         max_cost_usd: float | None = None,
     ) -> RunRecord:
         self._use_memory_for_current_run = use_memory
@@ -229,6 +232,7 @@ class ExecutionEngine:
                 real_coding_dry_run=real_coding_dry_run,
                 real_coding_model=real_coding_model,
                 real_coding_max_files=real_coding_max_files,
+                real_coding_max_repair_attempts=real_coding_max_repair_attempts,
             )
         if run_type in {"prototype_build", "continuation"}:
             return await self._execute_prototype_build(
@@ -768,6 +772,7 @@ class ExecutionEngine:
         real_coding_dry_run: bool = False,
         real_coding_model: str | None = None,
         real_coding_max_files: int | None = None,
+        real_coding_max_repair_attempts: int = 0,
     ) -> RunRecord:
         if not allow_file_writes:
             raise HTTPException(status_code=403, detail="website_update requires allow_file_writes=true unless the prompt restricted file writes.")
@@ -893,6 +898,8 @@ class ExecutionEngine:
                 allow_live_coding_model_call=allow_live_coding_model_call,
                 dry_run=real_coding_dry_run,
                 max_files=real_coding_max_files,
+                max_repair_attempts=real_coding_max_repair_attempts,
+                max_cost_usd=max_cost,
             )
             artifact_records.extend(self._save_real_coding_artifacts(run_id, real_coding_result))
             events.append(coding_event)
@@ -976,8 +983,18 @@ class ExecutionEngine:
         command_text = "\n".join(
             f"- {'allowed' if result.allowed else 'blocked'} {result.command}: exit={result.exit_code} cwd={result.cwd} stderr={result.stderr[:300]} reason={result.blocked_reason or result.error_message or 'n/a'}"
             for result in command_results
-        )
+        ) or "Safe Command Runner completed; no validation command was required or executed."
         if allow_safe_commands:
+            safe_command_action = (
+                "Ran project sanity validation with safe command runner"
+                if command_results
+                else "Safe Command Runner completed; no validation command was required or executed."
+            )
+            safe_command_input = (
+                "Run project sanity validation after the website update. This is a general syntax check, not direct validation of unchanged HTML/JSON copy."
+                if command_results
+                else "Check whether any approved safe validation command is required after the website update."
+            )
             command_event = self._manual_step(
                     run_id=run_id,
                     mode=mode,
@@ -985,12 +1002,15 @@ class ExecutionEngine:
                     agent_role="Validation sandbox",
                     model=self.settings.cheap_worker_model,
                     request_type="command_validation",
-                    input_text="Run project sanity validation after the website update. This is a general syntax check, not direct validation of unchanged HTML/JSON copy.",
+                    input_text=safe_command_input,
                     output_text=command_text,
-                    action_summary="Ran project sanity validation with safe command runner",
+                    action_summary=safe_command_action,
                     artifact_id=workspace_artifacts[0].id if workspace_artifacts else model_selection_artifact.id,
                 )
             command_event.status = _command_event_status(command_results)  # type: ignore[assignment]
+            if real_coding_result and real_coding_result.repair_loop.final_result == "repaired_successfully":
+                command_event.status = "completed"  # type: ignore[assignment]
+                command_event.action_summary = "Safe command validation passed after one repair attempt"
             command_event.action_summary = "Safe command validation failed" if command_event.status == "validation_failed" else command_event.action_summary
             events.append(command_event)
 
@@ -1043,10 +1063,23 @@ class ExecutionEngine:
         if metrics.total_estimated_cost_usd > max_cost:
             raise HTTPException(status_code=400, detail=f"Estimated run cost ${metrics.total_estimated_cost_usd:.6f} exceeds request max_cost_usd=${max_cost:.2f}.")
 
-        run_status = "failed" if real_coding_result and real_coding_result.live_call_made and not real_coding_result.validation.accepted else "completed"
+        run_status = (
+            "failed"
+            if real_coding_result
+            and (
+                (real_coding_result.live_call_made and not real_coding_result.validation.accepted)
+                or real_coding_result.repair_loop.rollback_attempted
+                or real_coding_result.repair_loop.final_result == "failed_rollback_error"
+            )
+            else "completed"
+        )
         created_files = [entry.path for entry in file_entries if entry.operation == "created"]
         edited_files = [entry.path for entry in file_entries if entry.operation == "updated"]
-        command_success = all(result.allowed and result.exit_code == 0 for result in command_results)
+        command_success = (
+            True
+            if real_coding_result and real_coding_result.repair_loop.final_result == "repaired_successfully"
+            else all(result.allowed and result.exit_code == 0 for result in command_results)
+        )
         project_state_content = update_project_state(
             project_root / "project_state.md",
             project_id=active_project_id,
@@ -1185,7 +1218,7 @@ class ExecutionEngine:
                 "project_sanity_validation": {
                     "safe_commands_executed": len(command_results),
                     "commands": [result.model_dump() for result in command_results],
-                    "result": "passed" if command_success else ("not_run" if not command_results else "needs_review"),
+                    "result": "not_run" if not command_results else ("passed" if command_success else "needs_review"),
                     "reason": "General project sanity validation. py_compile checks website/app.py syntax and does not directly validate unchanged HTML/JSON copy.",
                 },
             },
@@ -2609,6 +2642,25 @@ Approved for local review only. Human approval is still required before public u
                     summary="Safe provider response diagnostics for invalid live coding output.",
                 )
             )
+        for artifact_name, payload_key in [
+            ("repair_policy.json", "repair_policy"),
+            ("repair_attempt_1_context.json", "repair_attempt_1_context"),
+            ("repair_attempt_1_result.json", "repair_attempt_1_result"),
+            ("repair_validation_result.json", "repair_validation_result"),
+            ("rollback_result.json", "rollback_result"),
+        ]:
+            payload = result.repair_loop.artifacts.get(payload_key)
+            if payload and (result.repair_loop.repair_enabled or result.repair_loop.attempts_made or result.repair_loop.rollback_attempted):
+                artifacts.append(
+                    self.artifacts.save_text(
+                        run_id=run_id,
+                        name=artifact_name,
+                        artifact_type="json",
+                        content=json.dumps(payload, indent=2),
+                        agent_name="Real Coding Agent",
+                        summary="Bounded coding repair loop metadata.",
+                    )
+                )
         artifacts.append(
             self.artifacts.save_text(
                 run_id=run_id,
@@ -2665,6 +2717,14 @@ Approved for local review only. Human approval is still required before public u
 - Parser route: {result.parser_route or "n/a"}
 - Parse error: {result.parse_error or "none"}
 
+## Repair Loop
+- Repair enabled: {result.repair_loop.repair_enabled}
+- Repair attempts: {result.repair_loop.attempts_made} / {result.repair_loop.max_attempts}
+- Initial validation: {"failed" if result.repair_loop.initial_validation_failed else "not failed"}
+- Repair validation: {"passed" if result.repair_loop.repair_validation_passed is True else "failed" if result.repair_loop.repair_validation_passed is False else "n/a"}
+- Rollback: {"succeeded" if result.repair_loop.rollback_succeeded is True else "failed" if result.repair_loop.rollback_succeeded is False else "not attempted"}
+- Final result: {result.repair_loop.final_result}
+
 ## Files
 - Inspected: {", ".join(result.files_inspected[:20]) or "none"}
 - Selected: {", ".join(result.files_selected) or "none"}
@@ -2719,6 +2779,10 @@ Approved for local review only. Human approval is still required before public u
             return "Updated website files."
         if result.hardcoded_fallback_used:
             return "Used deterministic template fallback; no real coding model call was made."
+        if result.repair_loop.final_result == "repaired_successfully":
+            return "Initial validation failed, then one bounded Real Coding Agent repair patch passed validation and was retained."
+        if result.repair_loop.rollback_attempted:
+            return "Initial and repair validation failed; original pre-run file contents were restored."
         if result.dry_run:
             return "Real Coding Agent prepared and validated a dry-run patch without applying file changes."
         if result.patch_applied:
@@ -2732,7 +2796,11 @@ Approved for local review only. Human approval is still required before public u
 
     def _real_coding_qa_report_line(self, result: RealCodingAgentResult | None) -> str:
         if result and result.patch_applied:
+            if result.repair_loop.final_result == "repaired_successfully":
+                return "Ran QA after repaired file changes. Initial validation failed, repair validation passed."
             return "Ran QA after approved file changes."
+        if result and result.repair_loop.rollback_attempted:
+            return "Ran QA after failed repair validation. Original files were restored before stopping."
         if result and result.validation.accepted and result.dry_run:
             return "Ran QA after dry-run patch validation. No file changes were applied because dry-run mode was enabled."
         if result and not result.validation.accepted:

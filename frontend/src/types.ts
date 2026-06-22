@@ -320,6 +320,7 @@ export interface CreateRunPayload {
   real_coding_dry_run: boolean;
   real_coding_model?: string | null;
   real_coding_max_files?: number | null;
+  real_coding_max_repair_attempts: number;
   max_cost_usd: number;
   approval_ids?: string[];
 }

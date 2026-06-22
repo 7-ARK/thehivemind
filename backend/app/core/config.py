@@ -42,7 +42,7 @@ class Settings(BaseSettings):
     real_coding_max_output_files: int = 8
     real_coding_max_output_tokens: int = 3000
     real_coding_max_patch_bytes: int = 50000
-    real_coding_max_repair_attempts: int = 1
+    real_coding_max_repair_attempts: int = 0
     real_coding_require_diff: bool = True
     real_coding_dry_run: bool = False
     real_coding_use_memory: bool = True

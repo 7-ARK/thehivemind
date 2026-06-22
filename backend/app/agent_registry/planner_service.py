@@ -235,8 +235,33 @@ def _allowed_tools(agent_id: str, tools: list[str], request: AgentPlanRequest, c
 
 
 def _search_needed(command: str) -> bool:
-    lowered = command.lower()
+    lowered = _strip_negated_search_phrases(command.lower())
     return any(term in lowered for term in ("research", "competitor", "latest", "current", "web search", "browse", "market trends", "sources"))
+
+
+def _strip_negated_search_phrases(command: str) -> str:
+    for phrase in (
+        "do not run live web search",
+        "don't run live web search",
+        "do not use live web search",
+        "don't use live web search",
+        "do not run web search",
+        "don't run web search",
+        "do not web search",
+        "don't web search",
+        "do not search",
+        "don't search",
+        "no live web search",
+        "no web search",
+        "without live web search",
+        "without web search",
+        "do not browse",
+        "don't browse",
+        "no browsing",
+        "without browsing",
+    ):
+        command = command.replace(phrase, "")
+    return command
 
 
 def _research_only_requested(command: str) -> bool:

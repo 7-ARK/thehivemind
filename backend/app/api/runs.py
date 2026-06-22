@@ -47,6 +47,7 @@ async def start_run(payload: RunCreate) -> RunStartResponse:
         real_coding_dry_run=payload.real_coding_dry_run,
         real_coding_model=payload.real_coding_model,
         real_coding_max_files=payload.real_coding_max_files,
+        real_coding_max_repair_attempts=payload.real_coding_max_repair_attempts,
         max_cost_usd=payload.max_cost_usd,
     )
     if record.mode == "live":

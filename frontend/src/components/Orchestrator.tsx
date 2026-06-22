@@ -41,6 +41,7 @@ export default function Orchestrator({ onWorkflowCompleted, onOpenProject, onOpe
   const [useRealCodingAgent, setUseRealCodingAgent] = useState(true);
   const [allowLiveCodingModelCall, setAllowLiveCodingModelCall] = useState(false);
   const [realCodingDryRun, setRealCodingDryRun] = useState(false);
+  const [allowRepairAttempt, setAllowRepairAttempt] = useState(false);
   const [realCodingModel, setRealCodingModel] = useState("moonshotai/kimi-k2.7-code");
   const [realCodingMaxFiles, setRealCodingMaxFiles] = useState("12");
   const [maxCostUsd, setMaxCostUsd] = useState("0.25");
@@ -71,9 +72,10 @@ export default function Orchestrator({ onWorkflowCompleted, onOpenProject, onOpe
       real_coding_dry_run: realCodingDryRun,
       real_coding_model: realCodingModel || null,
       real_coding_max_files: Number(realCodingMaxFiles) || null,
+      real_coding_max_repair_attempts: allowRepairAttempt ? 1 : 0,
       max_cost_usd: Number(maxCostUsd) || 0.25,
     }),
-    [allowCeoLive, allowFileWrites, allowLiveCodingModelCall, allowSafeCommands, allowWebSearch, command, effectiveRunType, maxCostUsd, mode, projectId, promptConstraints, realCodingDryRun, realCodingMaxFiles, realCodingModel, useMemory, useRealCodingAgent],
+    [allowCeoLive, allowFileWrites, allowLiveCodingModelCall, allowRepairAttempt, allowSafeCommands, allowWebSearch, command, effectiveRunType, maxCostUsd, mode, projectId, promptConstraints, realCodingDryRun, realCodingMaxFiles, realCodingModel, useMemory, useRealCodingAgent],
   );
 
   useEffect(() => {
@@ -284,7 +286,7 @@ export default function Orchestrator({ onWorkflowCompleted, onOpenProject, onOpe
               </Field>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-5 gap-3">
+            <div className="grid grid-cols-1 lg:grid-cols-6 gap-3">
               <ToggleControl
                 label="Use Real Coding Agent"
                 checked={useRealCodingAgent}
@@ -305,6 +307,13 @@ export default function Orchestrator({ onWorkflowCompleted, onOpenProject, onOpe
                 onChange={setRealCodingDryRun}
                 disabled={running}
                 warning="Validate proposed patch without applying file changes."
+              />
+              <ToggleControl
+                label="Allow one repair attempt"
+                checked={allowRepairAttempt}
+                onChange={setAllowRepairAttempt}
+                disabled={running}
+                warning="One retry only after an applied patch fails an approved validation command."
               />
               <Field label="Coding Model" helper="OpenRouter coding worker. Kimi is preferred; Qwen is fallback.">
                 <select value={realCodingModel} onChange={(event) => setRealCodingModel(event.target.value)} disabled={running} className="control-input">
