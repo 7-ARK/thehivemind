@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { createRun, decideApproval, getProjectChanges, getRunCommands } from "../lib/api";
 import { collectRunCommands, collectRunFiles, FileSummaryItem } from "../lib/runSummary";
-import { ApprovalRequiredResponse, CommandResult, CreateRunPayload, ProjectChange, RunEvent, RunResult } from "../types";
+import { ApprovalRequiredResponse, BusinessIntake, CommandResult, CreateRunPayload, ProjectChange, RunEvent, RunResult } from "../types";
 import MarkdownView from "./MarkdownView";
 import ApprovalPanel from "./approvals/ApprovalPanel";
 import {
@@ -27,6 +27,19 @@ interface OrchestratorProps {
 
 const EXAMPLE_CREATE = "Create a simple Greek yogurt order website prototype with files.";
 const EXAMPLE_CONTINUE = "Continue the Greek yogurt website and add a simple order status page.";
+const DEFAULT_BUSINESS_INTAKE: BusinessIntake = {
+  idea: "",
+  business_type: "",
+  market_location: "",
+  target_customer: "",
+  primary_goal: "",
+  budget: "",
+  style_preferences: "",
+  product_or_service_details: "",
+  required_features: "",
+  constraints: "",
+  forbidden_actions: "",
+};
 
 export default function Orchestrator({ onWorkflowCompleted, onOpenProject, onOpenRunDetail }: OrchestratorProps) {
   const [command, setCommand] = useState(EXAMPLE_CREATE);
@@ -44,6 +57,7 @@ export default function Orchestrator({ onWorkflowCompleted, onOpenProject, onOpe
   const [allowRepairAttempt, setAllowRepairAttempt] = useState(false);
   const [realCodingModel, setRealCodingModel] = useState("moonshotai/kimi-k2.7-code");
   const [realCodingMaxFiles, setRealCodingMaxFiles] = useState("12");
+  const [businessIntake, setBusinessIntake] = useState<BusinessIntake>(DEFAULT_BUSINESS_INTAKE);
   const [maxCostUsd, setMaxCostUsd] = useState("0.25");
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<RunResult | null>(null);
@@ -54,28 +68,31 @@ export default function Orchestrator({ onWorkflowCompleted, onOpenProject, onOpe
   const [resultChanges, setResultChanges] = useState<ProjectChange[]>([]);
   const [error, setError] = useState<string | null>(null);
   const promptConstraints = useMemo(() => promptConstraintState(command), [command]);
-  const effectiveRunType = promptConstraints.forceResearchOnly ? "research_only" : promptConstraints.forceWebsiteUpdate ? "website_update" : runType;
+  const effectiveRunType = runType === "business_builder" ? "business_builder" : promptConstraints.forceResearchOnly ? "research_only" : promptConstraints.forceWebsiteUpdate ? "website_update" : runType;
+  const isBusinessBuilder = effectiveRunType === "business_builder";
+  const businessCommand = `Business Builder Phase 1 planning only: ${businessIntake.idea.trim() || "new business idea"}`;
 
   const payload = useMemo<CreateRunPayload>(
     () => ({
-      command: command.trim(),
+      command: isBusinessBuilder ? businessCommand : command.trim(),
       mode,
       project_id: projectId.trim() || null,
       run_type: effectiveRunType,
-      allow_file_writes: allowFileWrites && !promptConstraints.disableFileWrites,
-      allow_safe_commands: allowSafeCommands && !promptConstraints.disableSafeCommands,
+      allow_file_writes: isBusinessBuilder ? false : allowFileWrites && !promptConstraints.disableFileWrites,
+      allow_safe_commands: isBusinessBuilder ? false : allowSafeCommands && !promptConstraints.disableSafeCommands,
       allow_web_search: allowWebSearch && !promptConstraints.disableWebSearch,
       allow_ceo_live: allowCeoLive,
       use_memory: useMemory,
-      use_real_coding_agent: useRealCodingAgent,
-      allow_live_coding_model_call: allowLiveCodingModelCall,
-      real_coding_dry_run: realCodingDryRun,
-      real_coding_model: realCodingModel || null,
-      real_coding_max_files: Number(realCodingMaxFiles) || null,
-      real_coding_max_repair_attempts: allowRepairAttempt ? 1 : 0,
+      use_real_coding_agent: isBusinessBuilder ? false : useRealCodingAgent,
+      allow_live_coding_model_call: isBusinessBuilder ? false : allowLiveCodingModelCall,
+      real_coding_dry_run: isBusinessBuilder ? false : realCodingDryRun,
+      real_coding_model: isBusinessBuilder ? null : realCodingModel || null,
+      real_coding_max_files: isBusinessBuilder ? null : Number(realCodingMaxFiles) || null,
+      real_coding_max_repair_attempts: isBusinessBuilder ? 0 : allowRepairAttempt ? 1 : 0,
       max_cost_usd: Number(maxCostUsd) || 0.25,
+      business_intake: isBusinessBuilder ? businessIntake : null,
     }),
-    [allowCeoLive, allowFileWrites, allowLiveCodingModelCall, allowRepairAttempt, allowSafeCommands, allowWebSearch, command, effectiveRunType, maxCostUsd, mode, projectId, promptConstraints, realCodingDryRun, realCodingMaxFiles, realCodingModel, useMemory, useRealCodingAgent],
+    [allowCeoLive, allowFileWrites, allowLiveCodingModelCall, allowRepairAttempt, allowSafeCommands, allowWebSearch, businessCommand, businessIntake, command, effectiveRunType, isBusinessBuilder, maxCostUsd, mode, projectId, promptConstraints.disableFileWrites, promptConstraints.disableSafeCommands, promptConstraints.disableWebSearch, realCodingDryRun, realCodingMaxFiles, realCodingModel, useMemory, useRealCodingAgent],
   );
 
   useEffect(() => {
@@ -102,6 +119,17 @@ export default function Orchestrator({ onWorkflowCompleted, onOpenProject, onOpe
       setAllowWebSearch(false);
       setMaxCostUsd("0.03");
     }
+    if (runType === "business_builder") {
+      setMode("mock");
+      setAllowFileWrites(false);
+      setAllowSafeCommands(false);
+      setAllowCeoLive(false);
+      setUseRealCodingAgent(false);
+      setAllowLiveCodingModelCall(false);
+      setRealCodingDryRun(false);
+      setAllowRepairAttempt(false);
+      setMaxCostUsd("0.05");
+    }
   }, [runType]);
 
   useEffect(() => {
@@ -123,7 +151,7 @@ export default function Orchestrator({ onWorkflowCompleted, onOpenProject, onOpe
   }, [promptConstraints.forceResearchOnly]);
 
   const executeRun = async (runPayload: CreateRunPayload) => {
-    if (running || !runPayload.command) return;
+    if (running || !runPayload.command || (runPayload.run_type === "business_builder" && !runPayload.business_intake?.idea.trim())) return;
     setRunning(true);
     setError(null);
     setResult(null);
@@ -244,6 +272,7 @@ export default function Orchestrator({ onWorkflowCompleted, onOpenProject, onOpe
 
               <Field label="Run Type" helper="research_only selects Research + QA only; website_update selects Website + QA only.">
                 <select value={runType} onChange={(event) => setRunType(event.target.value as CreateRunPayload["run_type"])} disabled={running} className="control-input">
+                  <option value="business_builder">business_builder</option>
                   <option value="research_only">Research Only</option>
                   <option value="provider_test">provider_test</option>
                   <option value="website_update">website_update</option>
@@ -253,6 +282,10 @@ export default function Orchestrator({ onWorkflowCompleted, onOpenProject, onOpe
                 </select>
               </Field>
             </div>
+
+            {isBusinessBuilder && (
+              <BusinessIntakeSection intake={businessIntake} onChange={setBusinessIntake} disabled={running} />
+            )}
 
             <div className="grid grid-cols-1 lg:grid-cols-6 gap-3">
               <ToggleControl label="Allow file writes" checked={allowFileWrites} onChange={setAllowFileWrites} disabled={running} />
@@ -286,6 +319,7 @@ export default function Orchestrator({ onWorkflowCompleted, onOpenProject, onOpe
               </Field>
             </div>
 
+            {!isBusinessBuilder && (
             <div className="grid grid-cols-1 lg:grid-cols-6 gap-3">
               <ToggleControl
                 label="Use Real Coding Agent"
@@ -333,10 +367,13 @@ export default function Orchestrator({ onWorkflowCompleted, onOpenProject, onOpe
                 />
               </Field>
             </div>
+            )}
 
             {mode === "live" ? (
               <WarningCard>
-                Live mode can use real API credits. GPT-5.5 remains blocked unless CEO live is enabled. Current cost limit: ${payload.max_cost_usd.toFixed(2)}.
+                {isBusinessBuilder
+                  ? "Live Business Planner uses GPT-5.5 Flex for one bounded strategic planning call. This creates planning artifacts only. It does not build, deploy, contact anyone, or start Phase 2."
+                  : `Live mode can use real API credits. GPT-5.5 remains blocked unless CEO live is enabled. Current cost limit: $${payload.max_cost_usd.toFixed(2)}.`}
               </WarningCard>
             ) : (
               <InfoCard>Mock mode uses deterministic responses and does not spend API credits.</InfoCard>
@@ -366,7 +403,7 @@ export default function Orchestrator({ onWorkflowCompleted, onOpenProject, onOpe
             <button
               id="run-orchestration-btn"
               onClick={handleRun}
-              disabled={running || !payload.command}
+              disabled={running || !payload.command || (isBusinessBuilder && !businessIntake.idea.trim())}
               className="bg-[#20c997] hover:bg-[#1db184] disabled:bg-[#2c2e33] disabled:text-[#909296] text-[#141517] text-sm font-bold px-4 py-3 rounded flex items-center justify-center gap-2 transition-all outline-none cursor-pointer w-full sm:w-auto"
             >
               <PlayCircle className={`w-4 h-4 ${running ? "animate-spin" : ""}`} />
@@ -437,6 +474,43 @@ function ToggleControl({ label, checked, onChange, disabled, warning }: { label:
       </button>
       {warning && <p className="mt-2 text-[10px] text-[#fab005] leading-relaxed">{warning}</p>}
     </div>
+  );
+}
+
+function BusinessIntakeSection({ intake, onChange, disabled }: { intake: BusinessIntake; onChange: (value: BusinessIntake) => void; disabled?: boolean }) {
+  const update = (key: keyof BusinessIntake, value: string) => onChange({ ...intake, [key]: value });
+  return (
+    <div className="bg-[#141517] border border-[#2c2e33] rounded-lg p-4 space-y-4">
+      <InfoCard>
+        Phase 1 creates a planning package only. It does not build or deploy a website, app, brand asset, ad campaign, or external action.
+      </InfoCard>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+        <IntakeField label="Business Idea *" value={intake.idea} onChange={(value) => update("idea", value)} disabled={disabled} textarea />
+        <IntakeField label="Business Type" value={intake.business_type ?? ""} onChange={(value) => update("business_type", value)} disabled={disabled} />
+        <IntakeField label="Market / Location" value={intake.market_location ?? ""} onChange={(value) => update("market_location", value)} disabled={disabled} />
+        <IntakeField label="Target Customer" value={intake.target_customer ?? ""} onChange={(value) => update("target_customer", value)} disabled={disabled} textarea />
+        <IntakeField label="Primary Goal" value={intake.primary_goal ?? ""} onChange={(value) => update("primary_goal", value)} disabled={disabled} />
+        <IntakeField label="Budget" value={intake.budget ?? ""} onChange={(value) => update("budget", value)} disabled={disabled} />
+        <IntakeField label="Style Preferences" value={intake.style_preferences ?? ""} onChange={(value) => update("style_preferences", value)} disabled={disabled} textarea />
+        <IntakeField label="Product or Service Details" value={intake.product_or_service_details ?? ""} onChange={(value) => update("product_or_service_details", value)} disabled={disabled} textarea />
+        <IntakeField label="Required Features" value={intake.required_features ?? ""} onChange={(value) => update("required_features", value)} disabled={disabled} textarea />
+        <IntakeField label="Constraints" value={intake.constraints ?? ""} onChange={(value) => update("constraints", value)} disabled={disabled} textarea />
+        <IntakeField label="Forbidden Actions" value={intake.forbidden_actions ?? ""} onChange={(value) => update("forbidden_actions", value)} disabled={disabled} textarea />
+      </div>
+    </div>
+  );
+}
+
+function IntakeField({ label, value, onChange, disabled, textarea }: { label: string; value: string; onChange: (value: string) => void; disabled?: boolean; textarea?: boolean }) {
+  return (
+    <label className={textarea ? "block lg:col-span-2" : "block"}>
+      <span className="text-[10px] text-[#909296] font-mono uppercase tracking-wider font-bold">{label}</span>
+      {textarea ? (
+        <textarea value={value} onChange={(event) => onChange(event.target.value)} disabled={disabled} className="mt-2 min-h-20 w-full bg-[#101113] border border-[#2c2e33] rounded text-[#e9ecef] text-sm px-3 py-2 outline-none focus:ring-1 focus:ring-[#20c997]/60 resize-y" />
+      ) : (
+        <input value={value} onChange={(event) => onChange(event.target.value)} disabled={disabled} className="control-input mt-2" />
+      )}
+    </label>
   );
 }
 

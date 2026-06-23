@@ -142,6 +142,7 @@ export default function RunDetailViewer({ runId, projectId, onClose, onOpenProje
                   <RunTimelinePanel events={events.length ? events : run.events ?? []} mode={run.mode} />
                   <RunSearchPanel logs={searchLogs} artifacts={displayArtifacts} />
                   <RunMemoryPanel run={run} />
+                  <RunBusinessBuilderPanel run={run} />
                   <RunRealCodingPanel run={run} />
                   <RunPlanPanel agentPlan={agentPlan} modelSelection={modelSelection} />
                   <RunFinalReportPanel run={run} />
@@ -158,6 +159,46 @@ export default function RunDetailViewer({ runId, projectId, onClose, onOpenProje
         </main>
       </div>
     </div>
+  );
+}
+
+function RunBusinessBuilderPanel({ run }: { run: RunResult }) {
+  const detail = run.usage_summary?.business_builder;
+  if (!detail) return null;
+  const approvals = Array.isArray(detail.approvals_needed) ? detail.approvals_needed.map(String) : [];
+  const blocked = Array.isArray(detail.blocked_external_actions) ? detail.blocked_external_actions.map(String) : [];
+  const deferred = Array.isArray(detail.deferred_to_phase_2) ? detail.deferred_to_phase_2.map(String) : [];
+  const search = detail.search_status ?? {};
+  const memory = detail.memory_status ?? {};
+  return (
+    <section className="bg-[#1a1b1e] border border-[#2c2e33] rounded-lg p-4 space-y-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h3 className="text-xs font-bold text-[#909296] uppercase tracking-wider font-mono">Business Builder Phase 1</h3>
+          <p className="text-xs text-[#909296] mt-1">Planning package only. No website, app, deployment, asset, or external action was created.</p>
+        </div>
+        <span className="text-[10px] text-[#20c997] border border-[#20c997]/20 bg-[#20c997]/10 rounded px-2 py-1 font-mono">phase 1</span>
+      </div>
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <Metric label="Phase" value={String(detail.phase ?? 1)} />
+        <Metric label="Status" value={String(detail.status ?? "planning_complete")} />
+        <Metric label="Build Status" value={String(detail.build_status ?? "Not built")} />
+        <Metric label="Build Started" value={String(Boolean(detail.build_started))} />
+        <Metric label="Build Allowed" value={String(Boolean(detail.build_allowed))} />
+        <Metric label="Execution Mode" value={String(detail.execution_mode ?? "unknown")} />
+        <Metric label="Actual Provider" value={String(detail.actual_provider ?? "unknown")} />
+        <Metric label="Actual Model" value={String(detail.actual_model ?? "none")} />
+        <Metric label="Live Target" value={String(detail.live_strategic_planner_target ?? "gpt-5.5:flex")} />
+        <Metric label="Live Call" value={String(Boolean(detail.live_call_made))} />
+        <Metric label="Call Status" value={String(detail.provider_call_status ?? "unknown")} />
+        <Metric label="Search Used" value={String(Boolean(search.used))} />
+        <Metric label="Search Sources" value={String(search.source_count ?? 0)} />
+        <Metric label="Memory Retrieved" value={String(memory.retrieved_count ?? 0)} />
+      </div>
+      <MiniList title="Approvals Needed" items={approvals} empty="No approvals listed." />
+      <MiniList title="Blocked External Actions" items={blocked} empty="No blocked external actions listed." />
+      <MiniList title="Deferred To Phase 2" items={deferred} empty="Nothing deferred." />
+    </section>
   );
 }
 

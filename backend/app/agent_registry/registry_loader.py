@@ -27,8 +27,8 @@ class AgentRegistryLoader:
         return next((agent for agent in self.agents() if agent.id.lower() == normalized), None)
 
     def ensure_defaults(self) -> None:
-        self._ensure_json("agents.json", AGENTS)
-        self._ensure_json("agent_rules.json", AGENT_RULES)
+        self._ensure_agents()
+        self._ensure_rules()
 
     def _read_json(self, name: str, fallback: Any) -> Any:
         path = self.root / name
@@ -42,3 +42,44 @@ class AgentRegistryLoader:
         if not path.exists():
             path.write_text(json.dumps(payload, indent=2, ensure_ascii=True), encoding="utf-8")
 
+    def _ensure_agents(self) -> None:
+        path = self.root / "agents.json"
+        if not path.exists():
+            path.write_text(json.dumps(AGENTS, indent=2, ensure_ascii=True), encoding="utf-8")
+            return
+        try:
+            existing = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            path.write_text(json.dumps(AGENTS, indent=2, ensure_ascii=True), encoding="utf-8")
+            return
+        if not isinstance(existing, list):
+            return
+        existing_ids = {item.get("id") for item in existing if isinstance(item, dict)}
+        missing = [agent for agent in AGENTS if agent.get("id") not in existing_ids]
+        if missing:
+            path.write_text(json.dumps([*existing, *missing], indent=2, ensure_ascii=True), encoding="utf-8")
+
+    def _ensure_rules(self) -> None:
+        path = self.root / "agent_rules.json"
+        if not path.exists():
+            path.write_text(json.dumps(AGENT_RULES, indent=2, ensure_ascii=True), encoding="utf-8")
+            return
+        try:
+            existing = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            path.write_text(json.dumps(AGENT_RULES, indent=2, ensure_ascii=True), encoding="utf-8")
+            return
+        if not isinstance(existing, dict):
+            return
+        changed = False
+        for section, defaults in AGENT_RULES.items():
+            if section not in existing:
+                existing[section] = defaults
+                changed = True
+            elif isinstance(defaults, dict) and isinstance(existing[section], dict):
+                for key, value in defaults.items():
+                    if key not in existing[section]:
+                        existing[section][key] = value
+                        changed = True
+        if changed:
+            path.write_text(json.dumps(existing, indent=2, ensure_ascii=True), encoding="utf-8")

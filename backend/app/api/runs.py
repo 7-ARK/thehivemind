@@ -29,6 +29,7 @@ RunStartResponse = RunRecord | ApprovalRequiredResponse
 @router.post("", response_model=RunStartResponse)
 async def start_run(payload: RunCreate) -> RunStartResponse:
     payload = _apply_prompt_safety_overrides(payload)
+    payload = _normalize_business_builder_payload(payload)
     approval_response = ApprovalEngine().require_or_create(payload)
     if approval_response is not None:
         return approval_response
@@ -48,6 +49,7 @@ async def start_run(payload: RunCreate) -> RunStartResponse:
         real_coding_model=payload.real_coding_model,
         real_coding_max_files=payload.real_coding_max_files,
         real_coding_max_repair_attempts=payload.real_coding_max_repair_attempts,
+        business_intake=payload.business_intake,
         max_cost_usd=payload.max_cost_usd,
     )
     if record.mode == "live":
@@ -75,6 +77,28 @@ def _apply_prompt_safety_overrides(payload: RunCreate) -> RunCreate:
     if any(phrase in command for phrase in ("do not search", "don't search", "no web search", "do not browse", "do not run live web search")):
         updates["allow_web_search"] = False
     return payload.model_copy(update=updates) if updates else payload
+
+
+def _normalize_business_builder_payload(payload: RunCreate) -> RunCreate:
+    if payload.run_type != "business_builder":
+        return payload
+    intake = payload.business_intake
+    if intake is None or not intake.idea.strip():
+        raise HTTPException(status_code=422, detail="business_builder requires business_intake.idea.")
+    command = payload.command.strip()
+    if not command or command == "Business Builder Phase 1":
+        command = f"Business Builder Phase 1 planning only: {intake.idea.strip()}"
+    return payload.model_copy(
+        update={
+            "command": command,
+            "allow_file_writes": False,
+            "allow_safe_commands": False,
+            "use_real_coding_agent": False,
+            "allow_live_coding_model_call": False,
+            "real_coding_dry_run": False,
+            "real_coding_max_repair_attempts": 0,
+        }
+    )
 
 
 @router.get("/{run_id}", response_model=RunRecord)

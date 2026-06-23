@@ -213,7 +213,7 @@ def _allowed_for_agent(model: ModelRegistryEntry, agent_id: str) -> bool:
         return model.allowed_for_qa
     if normalized in {"operations_agent", "operations"}:
         return model.allowed_for_operations
-    if normalized in {"content_agent", "content", "model_selector_agent", "selector", "safe_command_runner", "provider_test_agent", "project_workspace_manager"}:
+    if normalized in {"business_planner_agent", "business_planner", "content_agent", "content", "model_selector_agent", "selector", "safe_command_runner", "provider_test_agent", "project_workspace_manager"}:
         return True
     return False
 

@@ -21,9 +21,9 @@ from app.coding.coding_agent_runner import RealCodingAgentRunner
 from app.coding.coding_policy import is_focused_website_update, prompt_file_scope
 from app.coding.schemas import PatchValidationResult, RealCodingAgentResult
 from app.core.config import Settings, get_settings
-from app.core.cost_estimator import assert_run_budget, estimate_cost_usd, estimate_tokens
+from app.core.cost_estimator import assert_run_budget, estimate_cost, estimate_cost_usd, estimate_messages_tokens, estimate_tokens
 from app.core.model_registry import get_model_metadata
-from app.core.models import AgentInfo, FinalOutput, RunEvent, RunMetrics, RunRecord
+from app.core.models import AgentInfo, BusinessIntake, FinalOutput, RunEvent, RunMetrics, RunRecord
 from app.memory.current_state import update_current_state
 from app.memory.embedding_memory import EmbeddingMemory
 from app.memory.context_packet import build_context_packet, format_context_packet
@@ -99,6 +99,7 @@ async def execute_run(
     real_coding_model: str | None = None,
     real_coding_max_files: int | None = None,
     real_coding_max_repair_attempts: int = 0,
+    business_intake: BusinessIntake | None = None,
     max_cost_usd: float | None = None,
 ) -> RunResult:
     return await ExecutionEngine().execute_run(
@@ -117,6 +118,7 @@ async def execute_run(
         real_coding_model=real_coding_model,
         real_coding_max_files=real_coding_max_files,
         real_coding_max_repair_attempts=real_coding_max_repair_attempts,
+        business_intake=business_intake,
         max_cost_usd=max_cost_usd,
     )
 
@@ -179,6 +181,7 @@ class ExecutionEngine:
         real_coding_model: str | None = None,
         real_coding_max_files: int | None = None,
         real_coding_max_repair_attempts: int = 0,
+        business_intake: BusinessIntake | None = None,
         max_cost_usd: float | None = None,
     ) -> RunRecord:
         self._use_memory_for_current_run = use_memory
@@ -203,6 +206,19 @@ class ExecutionEngine:
                 run_id=run_id,
                 started_at=started_at,
                 memory=memory,
+            )
+        if run_type == "business_builder":
+            return await self._execute_business_builder(
+                command=command,
+                mode=mode,
+                project_id=project_id,
+                allow_ceo_live=allow_ceo_live,
+                allow_web_search=allow_web_search,
+                max_cost=max_cost,
+                run_id=run_id,
+                started_at=started_at,
+                memory=memory,
+                business_intake=business_intake,
             )
         if run_type in {"research", "research_only"} or _is_research_only_command(command):
             return await self._execute_research_only(
@@ -481,6 +497,322 @@ class ExecutionEngine:
             artifacts=artifact_records,
         )
         self._update_memory(record, model_selection)
+        return self._finalize_run(record)
+
+    async def _execute_business_builder(
+        self,
+        *,
+        command: str,
+        mode: str,
+        project_id: str | None,
+        allow_ceo_live: bool,
+        allow_web_search: bool,
+        max_cost: float,
+        run_id: str,
+        started_at: datetime,
+        memory,
+        business_intake: BusinessIntake | None,
+    ) -> RunRecord:
+        if business_intake is None or not business_intake.idea.strip():
+            raise HTTPException(status_code=422, detail="business_builder requires business_intake.idea.")
+        if mode == "live" and not allow_ceo_live:
+            raise HTTPException(status_code=403, detail="Business Builder live planning requires allow_ceo_live=true and the existing CEO approval gate.")
+
+        active_project_id = project_id or "business-builder-phase1"
+        project_manager = ProjectWorkspaceManager(self.settings)
+        project_workspace = project_manager.ensure_project_workspace(active_project_id)
+        project_root = project_manager.get_project_root(active_project_id)
+        project_manager.create_run_log_folder(run_id)
+        agent_plan = self._plan_run(
+            command=command,
+            run_type="business_builder",
+            project_id=active_project_id,
+            mode=mode,
+            allow_file_writes=False,
+            allow_safe_commands=False,
+            allow_web_search=allow_web_search,
+            max_cost=max_cost,
+        )
+        selected_models = self._selection_by_agent(agent_plan)
+        planner_selection = selected_models.get("business_planner_agent") or {}
+        planner_model = str(planner_selection.get("selected_model_id") or ("gpt-5.5:flex" if mode == "live" else "mock_business_planner"))
+        qa_model = _selected_model_id(selected_models, "qa_agent", self.settings.cheap_worker_model)
+        artifact_records = []
+        agent_plan_artifact = self.artifacts.save_text(
+            run_id=run_id,
+            name="agent_plan.json",
+            artifact_type="json",
+            content=agent_plan.model_dump_json(indent=2),
+            agent_name="Business Planner",
+            summary="Selected Business Builder Phase 1 workflow and constraints.",
+        )
+        model_selection_artifact = self.artifacts.save_text(
+            run_id=run_id,
+            name="model_selection.json",
+            artifact_type="json",
+            content=json.dumps(selected_models, indent=2),
+            agent_name="Business Planner",
+            summary="Per-agent model choices for Business Builder Phase 1.",
+        )
+        artifact_records.extend([agent_plan_artifact, model_selection_artifact])
+        search_result: SearchResultPayload | None = None
+        research_event: RunEvent | None = None
+        if any(agent.agent_id == "research_agent" for agent in agent_plan.selected_agents):
+            provider_id = (agent_plan.selected_search_provider or {}).get("id") if isinstance(agent_plan.selected_search_provider, dict) else None
+            search_result = await self._run_research_search(
+                command=command,
+                mode=mode,
+                allow_web_search=allow_web_search,
+                provider_id=provider_id,
+                run_id=run_id,
+                project_id=active_project_id,
+            )
+            research_summary = f"Controlled research context collected for Phase 1 planning. Sources: {len(search_result.sources)}."
+            research_event = self._manual_step(
+                run_id=run_id,
+                mode=mode,
+                agent_name="Research Agent",
+                agent_role="Optional Phase 1 research context",
+                model=_selected_model_id(selected_models, "research_agent", self.settings.cheap_search_worker_model),
+                request_type="business_builder_research",
+                input_text=command,
+                output_text=research_summary,
+                action_summary="Collected optional research context for Business Builder Phase 1",
+                artifact_id=agent_plan_artifact.id,
+            )
+        intake_payload = self._business_intake_payload(business_intake)
+        research_status = {
+            "enabled": bool(allow_web_search),
+            "used": bool(search_result and search_result.sources),
+            "source_count": len(search_result.sources) if search_result else 0,
+        }
+        deterministic_bundle = self._business_builder_bundle(
+            command=command,
+            intake=intake_payload,
+            allow_web_search=allow_web_search,
+            memory_retrieved_count=len(memory.retrieved_snippets),
+            research_status=research_status,
+        )
+        if mode == "live":
+            planning_bundle, planner_event = await self._run_live_business_builder_planner(
+                command=command,
+                project_id=active_project_id,
+                run_id=run_id,
+                max_cost=max_cost,
+                intake=intake_payload,
+                deterministic_bundle=deterministic_bundle,
+                research_status=research_status,
+                memory_retrieved_count=len(memory.retrieved_snippets),
+                artifact_id=agent_plan_artifact.id,
+            )
+        else:
+            planning_bundle = deterministic_bundle
+            planner_event = self._business_builder_event(
+                run_id=run_id,
+                mode=mode,
+                agent_name="Business Planner",
+                agent_role="Business Builder Phase 1 planning",
+                model="mock_business_planner",
+                provider="mock",
+                input_text=json.dumps({"command": command, "business_intake": intake_payload, "phase": 1}, indent=2),
+                output_text=planning_bundle["final_planning_report.md"],
+                action_summary="Created Business Builder Phase 1 planning package with deterministic mock planner",
+                artifact_id=agent_plan_artifact.id,
+                estimated_model="gpt-5.5:flex",
+            )
+
+        planning_artifact_names = [
+            "business_brief.json",
+            "business_brief.md",
+            "business_strategy.md",
+            "target_customer.md",
+            "offer_and_pricing.md",
+            "brand_direction.md",
+            "website_app_requirements.md",
+            "mvp_scope.md",
+            "build_handoff.json",
+            "business_builder_state.json",
+        ]
+        for name in planning_artifact_names:
+            content = planning_bundle[name]
+            artifact_records.append(
+                self.artifacts.save_text(
+                    run_id=run_id,
+                    name=name,
+                    artifact_type="json" if name.endswith(".json") else "markdown",
+                    content=content if isinstance(content, str) else json.dumps(content, indent=2),
+                    agent_name="Business Planner",
+                    summary=f"Business Builder Phase 1 artifact: {name}.",
+                )
+            )
+        qa_text = self._business_builder_qa(planning_bundle)
+        qa_event = self._business_builder_event(
+            run_id=run_id,
+            mode=mode,
+            agent_name="Planning QA",
+            agent_role="Phase 1 planning review",
+            model=qa_model,
+            provider=get_model_metadata(qa_model).provider,
+            input_text=f"Review Business Builder Phase 1 artifacts for safety and completeness.\n{json.dumps(planning_bundle['business_brief.json'], indent=2)}",
+            output_text=qa_text,
+            action_summary="Reviewed Business Builder Phase 1 package",
+            artifact_id="",
+        )
+        qa_artifact = self.artifacts.save_text(
+            run_id=run_id,
+            name="planning_qa.md",
+            artifact_type="markdown",
+            content=qa_text,
+            agent_name="Planning QA",
+            summary="QA review for Business Builder Phase 1.",
+        )
+        qa_event.artifact_id = qa_artifact.id
+        final_artifact = self.artifacts.save_text(
+            run_id=run_id,
+            name="final_planning_report.md",
+            artifact_type="markdown",
+            content=planning_bundle["final_planning_report.md"],
+            agent_name="Business Planner",
+            summary="Executive planning report for Business Builder Phase 1.",
+        )
+        artifact_records.extend([qa_artifact, final_artifact])
+        events = [event for event in [research_event, planner_event, qa_event] if event is not None]
+        completed_at = datetime.now(UTC)
+        metrics = RunMetrics(
+            total_estimated_tokens=sum(event.estimated_tokens or event.estimated_input_tokens + event.estimated_output_tokens for event in events),
+            total_estimated_cost_usd=round(sum(event.estimated_cost_usd for event in events), 6),
+            agents_used=len({event.agent_name for event in events}),
+            tasks_completed=len(events),
+            run_duration_seconds=round((completed_at - started_at).total_seconds(), 3),
+            memory_chunks_retrieved=len(memory.retrieved_snippets),
+        )
+        assert_run_budget(metrics.total_estimated_cost_usd)
+        if metrics.total_estimated_cost_usd > max_cost:
+            raise HTTPException(status_code=400, detail=f"Estimated run cost ${metrics.total_estimated_cost_usd:.6f} exceeds request max_cost_usd=${max_cost:.2f}.")
+
+        state_entry = project_manager.write_project_file(
+            active_project_id,
+            "business_builder_state.json",
+            json.dumps(planning_bundle["business_builder_state.json"], indent=2),
+            "Business Planner",
+            run_id,
+            "Latest Business Builder Phase 1 planning state.",
+        )
+        project_state_content = update_project_state(
+            project_root / "project_state.md",
+            project_id=active_project_id,
+            run_id=run_id,
+            command=command,
+            files_created=[],
+            files_edited=[state_entry.path],
+            command_success=True,
+            next_steps=["Review Phase 1 planning package.", "Approve or revise assumptions before requesting Phase 2."],
+        )
+        project_manager.write_project_file(active_project_id, "project_state.md", project_state_content, "Project Workspace Manager", run_id, "Latest project state after business_builder Phase 1.")
+        project_manifest = project_manager.append_project_run(active_project_id, run_id, f"Business Builder Phase 1 planning completed for: {business_intake.idea.strip()}")
+        project_manifest_artifact = self.artifacts.register_file(
+            run_id=run_id,
+            name="project_manifest.json",
+            artifact_type="project_manifest",
+            path=str(project_root / "manifest.json"),
+            agent_name="Project Workspace Manager",
+            summary="Persistent project manifest after business_builder.",
+        )
+        project_state_artifact = self.artifacts.register_file(
+            run_id=run_id,
+            name="project_state.md",
+            artifact_type="project_state",
+            path=str(project_root / "project_state.md"),
+            agent_name="Project Workspace Manager",
+            summary="Updated project state.",
+        )
+        artifact_records.extend([project_manifest_artifact, project_state_artifact])
+        project_manager.write_run_logs(
+            run_id=run_id,
+            run_summary={
+                "run_id": run_id,
+                "project_id": active_project_id,
+                "run_type": "business_builder",
+                "status": "completed",
+                "selected_workflow": agent_plan.selected_workflow,
+                "agent_plan": agent_plan.model_dump(),
+                "model_selection": selected_models,
+                "files_created": [],
+                "files_edited": [state_entry.path],
+                "commands": [],
+                "estimated_cost_usd": metrics.total_estimated_cost_usd,
+            },
+            timeline=[event.model_dump() for event in events],
+            commands=[],
+            project_manifest=project_manifest,
+        )
+        record = RunRecord(
+            run_id=run_id,
+            command=command,
+            mode=mode,
+            project_id=active_project_id,
+            run_type="business_builder",
+            status="completed",
+            started_at=started_at,
+            completed_at=completed_at,
+            events=events,
+            agents=[
+                AgentInfo(name="Business Planner", role="Business Builder Phase 1 planning", assigned_model=planner_model, status="completed", latest_action="Created planning package", completed_work=planning_artifact_names),
+                AgentInfo(name="Planning QA", role="Phase 1 planning review", assigned_model=qa_model, status="completed", latest_action="Reviewed planning package", completed_work=["Created planning_qa.md"]),
+            ],
+            task_graph=build_default_task_graph(),
+            metrics=metrics,
+            memory=memory,
+            final_output=FinalOutput(
+                summary=f"Business Builder Phase 1 planning package completed for project {active_project_id}.",
+                what_was_done=[
+                    "Selected workflow: business_builder.",
+                    "Created Phase 1 planning artifacts only.",
+                    "Build status: Not built.",
+                    "Real Coding Agent was not used.",
+                    "No website, app, deployment, external integration, payment flow, social post, ad campaign, or external action was created.",
+                ],
+                recommended_next_actions=["Review facts, assumptions, unresolved decisions, and approvals.", "Request Phase 2 only after the handoff is reviewed and approved."],
+                generated_artifacts=[artifact.name for artifact in artifact_records],
+            ),
+            artifacts=artifact_records,
+            workspace=WorkspaceSummary(root=project_manager.public_root(active_project_id), files_created=[], files_edited=[state_entry.path], commands_run=[], command_success=True),
+            project_workspace=ProjectWorkspaceSummary(project_id=active_project_id, root=project_workspace.root, files_created=[], files_edited=[state_entry.path], commands_run=[], command_success=True),
+            models_used=sorted({event.model_used for event in events}),
+            project_files_created=[],
+            project_files_updated=[state_entry.path],
+            commands_run=[],
+            usage_summary={
+                "estimated_cost_usd": metrics.total_estimated_cost_usd,
+                "estimated_tokens": metrics.total_estimated_tokens,
+                "agents_used": metrics.agents_used,
+                "models_used": sorted({event.model_used for event in events}),
+                "selected_workflow": agent_plan.selected_workflow,
+                "search_needed": agent_plan.search_needed,
+                "search_unavailable": agent_plan.search_unavailable,
+                "business_builder": {
+                    "phase": 1,
+                    "status": "planning_complete",
+                    "build_status": "Not built",
+                    "build_started": False,
+                    "build_allowed": False,
+                    "execution_mode": "live_strategic_planner" if mode == "live" else "deterministic_mock_planner",
+                    "actual_provider": planner_event.provider,
+                    "actual_model": planner_event.model_used,
+                    "live_strategic_planner_target": "gpt-5.5:flex",
+                    "live_call_made": mode == "live",
+                    "provider_call_status": "success" if mode == "live" else "not_called_mock",
+                    "search_status": planning_bundle["business_brief.json"]["research_status"],
+                    "memory_status": {"retrieval_enabled": len(memory.retrieved_snippets) > 0, "retrieved_count": len(memory.retrieved_snippets)},
+                    "approvals_needed": planning_bundle["business_brief.json"]["approvals_needed"],
+                    "blocked_external_actions": planning_bundle["business_builder_state.json"]["external_actions_blocked"],
+                    "deferred_to_phase_2": planning_bundle["business_builder_state.json"]["deferred_to_phase_2"],
+                },
+            },
+            memory_updates=[],
+            agent_plan=agent_plan.model_dump(),
+            model_selection=selected_models,
+        )
         return self._finalize_run(record)
 
     async def _execute_research_only(
@@ -1757,6 +2089,563 @@ class ExecutionEngine:
                 self._apply_memory_control_summary(record)
                 self._save_run(record)
         return record
+
+    def _business_intake_payload(self, intake: BusinessIntake) -> dict[str, str]:
+        return {
+            "idea": intake.idea.strip(),
+            "business_type": (intake.business_type or "").strip(),
+            "market_location": (intake.market_location or "").strip(),
+            "target_customer": (intake.target_customer or "").strip(),
+            "primary_goal": (intake.primary_goal or "").strip(),
+            "budget": (intake.budget or "").strip(),
+            "style_preferences": (intake.style_preferences or "").strip(),
+            "product_or_service_details": (intake.product_or_service_details or "").strip(),
+            "required_features": (intake.required_features or "").strip(),
+            "constraints": (intake.constraints or "").strip(),
+            "forbidden_actions": (intake.forbidden_actions or "").strip(),
+        }
+
+    async def _run_live_business_builder_planner(
+        self,
+        *,
+        command: str,
+        project_id: str,
+        run_id: str,
+        max_cost: float,
+        intake: dict[str, str],
+        deterministic_bundle: dict[str, Any],
+        research_status: dict[str, Any],
+        memory_retrieved_count: int,
+        artifact_id: str,
+    ) -> tuple[dict[str, Any], RunEvent]:
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You are TheHiveMind Business Planner for Phase 1 only. Return strict JSON with exactly the required "
+                    "Business Builder Phase 1 artifact keys. Do not write code, do not build, do not deploy, and do not "
+                    "perform external actions."
+                ),
+            },
+            {
+                "role": "user",
+                "content": json.dumps(
+                    {
+                        "command": command,
+                        "business_intake": intake,
+                        "research_status": research_status,
+                        "memory_status": {"retrieved_count": memory_retrieved_count},
+                        "required_artifact_names": deterministic_bundle["business_builder_state.json"]["artifact_names"],
+                        "phase_1_exclusions": deterministic_bundle["business_brief.json"]["deferred_to_phase_2"],
+                        "safety_boundary": "Planning only. build_started=false and build_allowed=false must remain false.",
+                    },
+                    indent=2,
+                ),
+            },
+        ]
+        max_output_tokens = min(500, self.settings.max_output_tokens_per_call)
+        input_tokens = estimate_messages_tokens(messages)
+        preflight = estimate_cost(self.settings.ceo_model, input_tokens, max_output_tokens, service_tier=self.settings.ceo_service_tier)
+        if preflight.estimated_cost_usd > max_cost:
+            raise HTTPException(status_code=400, detail=f"Estimated Business Builder planner call ${preflight.estimated_cost_usd:.6f} exceeds request max_cost_usd=${max_cost:.2f}.")
+        response, _usage_id = await generate_with_provider(
+            provider="openai",
+            model=self.settings.ceo_model,
+            mode="live",
+            messages=messages,
+            max_output_tokens=max_output_tokens,
+            temperature=0.2,
+            service_tier=self.settings.ceo_service_tier,
+            run_id=run_id,
+            task_id=f"{run_id}:business_builder_live_planning",
+            agent_name="Business Planner",
+            agent_role="Business Builder Phase 1 strategic planner",
+            project_id=project_id,
+            request_type="business_builder_live_planning",
+            response_format={"type": "json_object"},
+            settings=self.settings,
+            usage_store=self.usage,
+        )
+        bundle = self._parse_live_business_builder_bundle(response.text)
+        event = RunEvent(
+            timestamp=datetime.now(UTC),
+            run_id=run_id,
+            agent_name="Business Planner",
+            agent_role="Business Builder Phase 1 strategic planner",
+            status="completed",
+            action_summary="Created Business Builder Phase 1 planning package with GPT-5.5 Flex strategic planner",
+            input_summary="Compact structured business intake, constraints, search/memory status, artifact contract, and Phase 1 exclusions.",
+            output_summary="Validated structured Business Builder Phase 1 planning bundle.",
+            model_used=response.model,
+            provider=response.provider,
+            estimated_input_tokens=response.input_tokens,
+            estimated_output_tokens=response.output_tokens,
+            estimated_tokens=response.input_tokens + response.output_tokens,
+            estimated_cost_usd=response.estimated_cost_usd,
+            estimated_cost=response.estimated_cost_usd,
+            artifact_id=artifact_id,
+        )
+        return bundle, event
+
+    def _parse_live_business_builder_bundle(self, text: str) -> dict[str, Any]:
+        try:
+            payload = json.loads(text)
+        except json.JSONDecodeError as exc:
+            raise HTTPException(status_code=502, detail=f"Business Builder live planner returned malformed JSON: {exc.msg}.") from exc
+        required = {
+            "business_brief.json",
+            "business_brief.md",
+            "business_strategy.md",
+            "target_customer.md",
+            "offer_and_pricing.md",
+            "brand_direction.md",
+            "website_app_requirements.md",
+            "mvp_scope.md",
+            "build_handoff.json",
+            "business_builder_state.json",
+            "final_planning_report.md",
+        }
+        missing = sorted(name for name in required if name not in payload)
+        if missing:
+            raise HTTPException(status_code=502, detail=f"Business Builder live planner response missing required artifacts: {', '.join(missing)}.")
+        for name in ("business_brief.json", "build_handoff.json", "business_builder_state.json"):
+            if not isinstance(payload.get(name), dict):
+                raise HTTPException(status_code=502, detail=f"Business Builder live planner artifact {name} must be a JSON object.")
+        state = payload["business_builder_state.json"]
+        if state.get("phase") != 1 or state.get("build_started") is not False or state.get("build_allowed") is not False:
+            raise HTTPException(status_code=502, detail="Business Builder live planner violated Phase 1 build boundary.")
+        return payload
+
+    def _business_builder_event(
+        self,
+        *,
+        run_id: str,
+        mode: str,
+        agent_name: str,
+        agent_role: str,
+        model: str,
+        provider: str,
+        input_text: str,
+        output_text: str,
+        action_summary: str,
+        artifact_id: str,
+        estimated_model: str | None = None,
+    ) -> RunEvent:
+        cost_model = estimated_model or model
+        input_tokens = estimate_tokens(input_text)
+        output_tokens = estimate_tokens(output_text)
+        cost = estimate_cost(cost_model, input_tokens, output_tokens, service_tier=self.settings.ceo_service_tier if cost_model == self.settings.ceo_model else None).estimated_cost_usd
+        return RunEvent(
+            timestamp=datetime.now(UTC),
+            run_id=run_id,
+            agent_name=agent_name,
+            agent_role=agent_role,
+            status="completed",
+            action_summary=action_summary,
+            input_summary=input_text,
+            output_summary=output_text,
+            model_used=model,
+            provider=provider,
+            estimated_input_tokens=input_tokens,
+            estimated_output_tokens=output_tokens,
+            estimated_tokens=input_tokens + output_tokens,
+            estimated_cost_usd=cost,
+            estimated_cost=cost,
+            artifact_id=artifact_id or None,
+        )
+
+    def _business_builder_bundle(self, *, command: str, intake: dict[str, str], allow_web_search: bool, memory_retrieved_count: int, research_status: dict[str, Any] | None = None) -> dict[str, Any]:
+        facts = [f"Business idea: {intake['idea']}"]
+        for label, key in (
+            ("Business type", "business_type"),
+            ("Market/location", "market_location"),
+            ("Target customer", "target_customer"),
+            ("Primary goal", "primary_goal"),
+            ("Budget", "budget"),
+            ("Style preferences", "style_preferences"),
+            ("Product/service details", "product_or_service_details"),
+            ("Required features", "required_features"),
+        ):
+            if intake[key]:
+                facts.append(f"{label}: {intake[key]}")
+        assumptions = [
+            "The first MVP should be small, informational, and approval-gated before any customer-facing operations.",
+            "Pricing, operations, compliance, delivery, and claims require human evidence or approval before launch.",
+        ]
+        if not intake["target_customer"]:
+            assumptions.append("Target customer details are not fully supplied and must be validated before Phase 2.")
+        if not intake["budget"]:
+            assumptions.append("No final budget was supplied; budget remains an unresolved decision.")
+        constraints = self._split_business_lines(intake["constraints"]) or ["No unsupported claims or external actions in Phase 1."]
+        forbidden_actions = self._split_business_lines(intake["forbidden_actions"])
+        blocked_actions = list(
+            dict.fromkeys(
+                [
+                "deployments",
+                "domain_purchase",
+                "hosting_purchase",
+                "package_installation",
+                "cloud_setup",
+                "payments",
+                "email",
+                "whatsapp",
+                "social_media_posting",
+                "ads",
+                "supplier_contact",
+                "customer_contact",
+                "external_apis",
+                *forbidden_actions,
+                ]
+            )
+        )
+        approvals_needed = [
+            "Approve or revise assumptions before Phase 2.",
+            "Approve product claims, pricing, compliance, operations, and integrations before launch.",
+        ]
+        deferred = [
+            "Phase 2 website/app implementation",
+            "Visual assets, logo, images, and screenshots",
+            "Checkout, payments, messaging, delivery, and external integrations",
+            "Deployments, hosting, domains, ads, and outreach",
+        ]
+        research_status = research_status or {"enabled": bool(allow_web_search), "used": False, "source_count": 0}
+        brief = {
+            "schema_version": "1.0",
+            "phase": 1,
+            "status": "planning_complete_not_built",
+            "intake": intake,
+            "facts_from_user": facts,
+            "assumptions": assumptions,
+            "research_status": research_status,
+            "memory_status": {"retrieval_enabled": memory_retrieved_count > 0, "retrieved_count": memory_retrieved_count},
+            "constraints": constraints,
+            "forbidden_actions": forbidden_actions,
+            "approvals_needed": approvals_needed,
+            "deferred_to_phase_2": deferred,
+        }
+        handoff = {
+            "schema_version": "1.0",
+            "phase": 1,
+            "status": "planning_complete_not_built",
+            "business_summary": intake["idea"],
+            "approved_assumptions": [],
+            "pages_or_screens": ["Home", "Products or services", "Trust / FAQ", "Contact or manually reviewed order request"],
+            "primary_user_flows": ["Visitor understands the offer", "Visitor reviews trust and FAQ content", "Visitor submits or prepares for a future manually reviewed inquiry"],
+            "content_requirements": ["Clear offer explanation", "Trust-building copy", "FAQ content", "Manual review language for any future inquiry flow"],
+            "visual_direction_summary": intake["style_preferences"] or "Clean, trustworthy, simple, and practical.",
+            "feature_scope": {
+                "must_have": ["Business overview", "Offer explanation", "Trust and safety copy", "FAQ", "Future manual inquiry handoff"],
+                "later": ["Ordering workflow", "Customer accounts", "Payments", "Delivery integrations", "Analytics"],
+                "out_of_scope": ["Payments", "Deployments", "External integrations", "Supplier/customer outreach", "Generated brand assets"],
+            },
+            "data_entities": ["Product or service", "FAQ item", "Future inquiry request"],
+            "constraints": constraints,
+            "forbidden_actions": forbidden_actions,
+            "approval_required_before_phase_2": approvals_needed,
+            "phase_2_acceptance_criteria": ["Business owner approves assumptions.", "Claims and pricing are evidence-backed.", "Phase 2 scope is explicitly requested."],
+            "deferred_to_phase_2": [*deferred, "Phase 2 has not started."],
+        }
+        state = {
+            "schema_version": "1.0",
+            "phase": 1,
+            "phase_status": "planning_complete",
+            "build_started": False,
+            "build_allowed": False,
+            "external_actions_taken": [],
+            "external_actions_blocked": blocked_actions,
+            "approvals_needed": approvals_needed,
+            "artifact_names": [
+                "business_brief.json",
+                "business_brief.md",
+                "business_strategy.md",
+                "target_customer.md",
+                "offer_and_pricing.md",
+                "brand_direction.md",
+                "website_app_requirements.md",
+                "mvp_scope.md",
+                "build_handoff.json",
+                "planning_qa.md",
+                "final_planning_report.md",
+                "business_builder_state.json",
+            ],
+            "deferred_to_phase_2": deferred,
+        }
+        bundle: dict[str, Any] = {
+            "business_brief.json": brief,
+            "build_handoff.json": handoff,
+            "business_builder_state.json": state,
+        }
+        bundle["business_brief.md"] = self._business_brief_markdown(brief)
+        bundle["business_strategy.md"] = self._business_strategy_markdown(intake, assumptions)
+        bundle["target_customer.md"] = self._target_customer_markdown(intake)
+        bundle["offer_and_pricing.md"] = self._offer_pricing_markdown(intake)
+        bundle["brand_direction.md"] = self._brand_direction_markdown(intake)
+        bundle["website_app_requirements.md"] = self._website_requirements_markdown(intake, handoff)
+        bundle["mvp_scope.md"] = self._mvp_scope_markdown(handoff)
+        bundle["final_planning_report.md"] = self._final_planning_report_markdown(intake, brief, handoff)
+        return bundle
+
+    def _business_builder_qa(self, bundle: dict[str, Any]) -> str:
+        names = bundle["business_builder_state.json"]["artifact_names"]
+        return f"""# Planning QA
+
+- PASS: All required Phase 1 artifacts are specified: {", ".join(names)}.
+- PASS: Facts from user and assumptions are separated in business_brief.json.
+- PASS: Search state is truthful: used={bundle["business_brief.json"]["research_status"]["used"]}, sources={bundle["business_brief.json"]["research_status"]["source_count"]}.
+- PASS: Memory state is recorded separately from post-run ingestion.
+- PASS: Constraints and forbidden actions are reflected.
+- PASS: No Phase 2 build occurred.
+- PASS: No external action occurred.
+- PASS: Build handoff is present for later controlled implementation.
+- WARN: Missing user decisions and approvals must be reviewed before Phase 2.
+"""
+
+    def _split_business_lines(self, value: str) -> list[str]:
+        if not value:
+            return []
+        parts = [item.strip(" -\n\t.") for item in value.replace(";", "\n").split("\n")]
+        return [item for item in parts if item]
+
+    def _business_brief_markdown(self, brief: dict[str, Any]) -> str:
+        return f"""# Business Brief
+
+Phase: {brief["phase"]}
+Status: {brief["status"]}
+
+## Facts From User
+{self._markdown_list(brief["facts_from_user"])}
+
+## Assumptions
+{self._markdown_list(brief["assumptions"])}
+
+## Research Status
+- Enabled: {brief["research_status"]["enabled"]}
+- Used: {brief["research_status"]["used"]}
+- Source count: {brief["research_status"]["source_count"]}
+
+## Memory Status
+- Retrieved count: {brief["memory_status"]["retrieved_count"]}
+
+## Constraints
+{self._markdown_list(brief["constraints"])}
+
+## Forbidden Actions
+{self._markdown_list(brief["forbidden_actions"])}
+
+## Approvals Needed
+{self._markdown_list(brief["approvals_needed"])}
+
+## Deferred To Phase 2
+{self._markdown_list(brief["deferred_to_phase_2"])}
+"""
+
+    def _business_strategy_markdown(self, intake: dict[str, str], assumptions: list[str]) -> str:
+        return f"""# Business Strategy
+
+## Problem to solve
+Help the target customer understand and evaluate: {intake["idea"]}
+
+## Business concept
+{intake["product_or_service_details"] or intake["idea"]}
+
+## Value proposition
+Assumption: a clear, trustworthy, small MVP can explain the offer and prepare for manually reviewed demand.
+
+## Positioning
+{intake["style_preferences"] or "Assumption: practical, trustworthy, and easy to understand."}
+
+## Early validation approach
+- Interview target customers before launch.
+- Validate pricing and claims before publishing.
+- Keep all order or inquiry flows manually reviewed.
+
+## Key risks
+{self._markdown_list(assumptions)}
+
+## Success signals
+- Users understand the offer.
+- Users know what is and is not available yet.
+- The owner can approve a narrow Phase 2 build scope.
+"""
+
+    def _target_customer_markdown(self, intake: dict[str, str]) -> str:
+        customer = intake["target_customer"] or "Assumption: primary customer is not fully specified yet."
+        return f"""# Target Customer
+
+## Primary customer
+{customer}
+
+## Customer needs
+- Assumption: clear explanation of the offer.
+- Assumption: trust signals before taking action.
+
+## Customer pain points
+- Unclear product details.
+- Unverified claims or pricing.
+
+## Buying triggers
+- Clear fit for everyday use.
+- Trustworthy, simple presentation.
+
+## Likely objections
+- Price, availability, product claims, and reliability need validation.
+
+## Customer journey assumptions
+- Discover the business.
+- Understand the offer.
+- Review trust/FAQ content.
+- Use a future manually reviewed inquiry flow.
+
+## Validation questions
+- Who is the strongest first customer segment?
+- What evidence is needed for claims?
+- What price range is acceptable?
+"""
+
+    def _offer_pricing_markdown(self, intake: dict[str, str]) -> str:
+        budget = intake["budget"] or "Not supplied; no final budget or price is assumed."
+        return f"""# Offer And Pricing
+
+## Core offer
+{intake["product_or_service_details"] or intake["idea"]}
+
+## Possible offer tiers or packages
+- Starter or single-item offer.
+- Bundle or recurring option later, only after validation.
+
+## Pricing framework
+Pricing is a framework until validated. Budget input: {budget}
+
+## Pricing assumptions
+- Assumption: final prices require evidence, cost inputs, and human approval.
+
+## What needs validation before final prices
+- Costs, demand, compliance, delivery, and competitive context.
+
+## Optional launch offer ideas
+- Manually reviewed introductory offer after claims and operations are approved.
+"""
+
+    def _brand_direction_markdown(self, intake: dict[str, str]) -> str:
+        style = intake["style_preferences"] or "Simple, trustworthy, and clear."
+        return f"""# Brand Direction
+
+## Brand personality
+{style}
+
+## Tone of voice
+Clear, grounded, careful, and non-hype.
+
+## Visual direction
+Planning only: clean layout, strong readability, and trust-building details.
+
+## Suggested colour mood
+Warm, clean, natural, and restrained.
+
+## Typography mood
+Readable, modern, and practical.
+
+## Photography/illustration direction
+Use real approved product or process imagery later. No images are generated in Phase 1.
+
+## What to avoid
+- Unsupported health, medical, nutritional, legal, or guaranteed business claims.
+- Generated logos or brand assets in Phase 1.
+"""
+
+    def _website_requirements_markdown(self, intake: dict[str, str], handoff: dict[str, Any]) -> str:
+        return f"""# Website App Requirements
+
+## Business goal for the future website/app
+{intake["primary_goal"] or "Explain the business and prepare a controlled Phase 2 MVP."}
+
+## Target users
+{intake["target_customer"] or "Assumption: target users need validation."}
+
+## Required pages or screens
+{self._markdown_list(handoff["pages_or_screens"])}
+
+## Required features
+{self._markdown_list(self._split_business_lines(intake["required_features"]) or handoff["feature_scope"]["must_have"])}
+
+## Primary user flows
+{self._markdown_list(handoff["primary_user_flows"])}
+
+## Content requirements
+{self._markdown_list(handoff["content_requirements"])}
+
+## Trust and safety requirements
+- Claims, pricing, delivery, compliance, and operations need approval or evidence before launch.
+
+## Out-of-scope features
+{self._markdown_list(handoff["feature_scope"]["out_of_scope"])}
+
+## Approval-required integrations
+- Payments, messaging, delivery, analytics, account systems, and any external API.
+"""
+
+    def _mvp_scope_markdown(self, handoff: dict[str, Any]) -> str:
+        return f"""# MVP Scope
+
+## Must have
+{self._markdown_list(handoff["feature_scope"]["must_have"])}
+
+## Should have later
+{self._markdown_list(handoff["feature_scope"]["later"])}
+
+## Explicitly out of scope
+{self._markdown_list(handoff["feature_scope"]["out_of_scope"])}
+
+## Risks and dependencies
+- User must approve assumptions.
+- Evidence is needed for claims and pricing.
+- Phase 2 must be explicitly requested.
+
+## Acceptance criteria for Phase 2 readiness
+{self._markdown_list(handoff["phase_2_acceptance_criteria"])}
+"""
+
+    def _final_planning_report_markdown(self, intake: dict[str, str], brief: dict[str, Any], handoff: dict[str, Any]) -> str:
+        return f"""# Final Planning Report
+
+This is a Phase 1 planning package.
+No website, app, deployment, external integration, social post, ad campaign, payment flow, or external action has been created.
+
+## Business concept
+{intake["idea"]}
+
+## Core customer
+{intake["target_customer"] or "Assumption: core customer must be validated."}
+
+## Offer summary
+{intake["product_or_service_details"] or intake["idea"]}
+
+## Pricing status
+No final pricing is set unless supplied and approved by the user. Pricing remains a validation item.
+
+## Brand direction
+{handoff["visual_direction_summary"]}
+
+## Website/app MVP requirements
+{self._markdown_list(handoff["feature_scope"]["must_have"])}
+
+## Key risks
+{self._markdown_list(brief["assumptions"])}
+
+## Approvals needed
+{self._markdown_list(brief["approvals_needed"])}
+
+## What is intentionally not built
+{self._markdown_list(brief["deferred_to_phase_2"])}
+
+## What is ready for Phase 2 review
+- A compact build handoff exists.
+- Assumptions and unresolved approvals are visible.
+- Phase 2 has not started.
+"""
+
+    def _markdown_list(self, items: list[str]) -> str:
+        return "\n".join(f"- {item}" for item in items) if items else "- None supplied."
 
     def _apply_memory_control_summary(self, record: RunRecord) -> None:
         use_memory = bool(getattr(self, "_use_memory_for_current_run", True))

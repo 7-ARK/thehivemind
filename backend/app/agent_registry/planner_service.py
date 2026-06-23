@@ -21,9 +21,12 @@ class AgentPlannerService:
         constraints = _dedupe(_negative_constraints(request.command, self.loader.rules()))
         blocked_actions = _dedupe(_blocked_actions_from_constraints(constraints))
         workflow = _workflow_for(request)
+        search_query = request.command
+        if request.run_type == "business_builder" and not request.allow_search:
+            search_query = "Business Builder Phase 1 planning only."
         search_selection = self.search_selector.select(
             SearchSelectionRequest(
-                query=request.command,
+                query=search_query,
                 allow_web_search=request.allow_search,
                 mode=request.mode,
                 max_results=5,
@@ -48,7 +51,9 @@ class AgentPlannerService:
                 constraints=_dedupe(constraints),
                 needs_model_selection=agent.id != "safe_command_runner",
             )
-            if include_model_selection and planned.needs_model_selection:
+            if agent.id == "business_planner_agent":
+                planned.selected_model = _business_planner_model_selection(request, self.settings)
+            elif include_model_selection and planned.needs_model_selection:
                 try:
                     selection = self.selector.select_for_agent(
                         command=request.command,
@@ -125,6 +130,12 @@ class AgentPlannerService:
     def _selected_ids(self, workflow: str, request: AgentPlanRequest, constraints: list[str]) -> list[str]:
         if workflow == "provider_test":
             return ["provider_test_agent"]
+        if workflow == "business_builder":
+            agents = ["business_planner_agent"]
+            if request.allow_search and _search_needed(request.command):
+                agents.append("research_agent")
+            agents.append("qa_agent")
+            return agents
         if workflow == "website_update":
             agents = []
             if _search_needed(request.command):
@@ -142,6 +153,8 @@ def _workflow_for(request: AgentPlanRequest) -> str:
     command = request.command.lower()
     if request.run_type == "provider_test":
         return "provider_test"
+    if request.run_type == "business_builder":
+        return "business_builder"
     if request.run_type in {"research", "research_only"}:
         return "research_only"
     if request.run_type == "website_update":
@@ -197,6 +210,7 @@ def _objective_for(agent_id: str, command: str) -> str:
         "safe_command_runner": "Run allowlisted validation commands and log stdout/stderr/cwd.",
         "qa_agent": "Review outputs, constraints, file changes, and command results.",
         "provider_test_agent": "Run one tiny live provider connectivity test.",
+        "business_planner_agent": "Create Phase 1 business planning artifacts and build handoff without building.",
         "project_workspace_manager": "Update project state and manifest from actual changes.",
     }
     return f"{objectives.get(agent_id, 'Perform approved task.')} Command: {command[:500]}"
@@ -210,11 +224,42 @@ def _required_model_capabilities(agent_id: str, request: AgentPlanRequest) -> li
     caps: list[str] = []
     if agent_id in {"website_agent", "file_builder_agent"}:
         caps.extend(["coding", "tools", "json"])
+    if agent_id == "business_planner_agent":
+        caps.extend(["json", "summarization"])
     if agent_id == "research_agent":
         caps.extend(["json", "summarization"])
     if agent_id == "qa_agent":
         caps.append("json")
     return caps
+
+
+def _business_planner_model_selection(request: AgentPlanRequest, settings: Settings) -> dict:
+    if request.mode == "live":
+        return {
+            "selected_model_id": "gpt-5.5:flex",
+            "provider": "openai",
+            "provider_model_name": settings.ceo_model,
+            "service_tier": settings.ceo_service_tier,
+            "reason": "Business Builder live planning uses the registered GPT-5.5 Flex CEO-grade strategic planner for one bounded Phase 1 planning call.",
+            "confidence": 0.98,
+            "estimated_risk": "high",
+            "requires_approval": True,
+            "fallback_model_id": None,
+            "cost_guard": {"within_budget": True, "max_allowed_cost": request.max_cost_usd},
+        }
+    return {
+        "selected_model_id": "mock_business_planner",
+        "provider": "mock",
+        "live_strategic_planner_target": "gpt-5.5:flex",
+        "provider_model_name": settings.ceo_model,
+        "service_tier": settings.ceo_service_tier,
+        "reason": "Business Builder mock planning uses deterministic local output. No Qwen, Kimi, GPT-5.5, OpenAI, or OpenRouter call is made.",
+        "confidence": 1.0,
+        "estimated_risk": "low",
+        "requires_approval": False,
+        "fallback_model_id": None,
+        "cost_guard": {"within_budget": True, "max_allowed_cost": request.max_cost_usd},
+    }
 
 
 def _required_search_tool_capabilities(agent_id: str, request: AgentPlanRequest) -> list[str]:
@@ -273,6 +318,8 @@ def _research_only_requested(command: str) -> bool:
 
 
 def _skip_reason(agent_id: str, workflow: str, request: AgentPlanRequest) -> str:
+    if workflow == "business_builder":
+        return "Not needed for Business Builder Phase 1 planning."
     if workflow == "website_update":
         return "Not needed for website-only update workflow."
     if workflow == "research_only":

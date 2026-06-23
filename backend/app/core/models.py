@@ -12,6 +12,20 @@ RunStatus = Literal["queued", "planning", "selecting_models", "executing_workers
 EventStatus = Literal["pending", "running", "started", "completed", "completed_with_warnings", "validation_failed", "failed", "blocked", "skipped"]
 
 
+class BusinessIntake(BaseModel):
+    idea: str = Field(default="", max_length=2000)
+    business_type: str | None = Field(default=None, max_length=500)
+    market_location: str | None = Field(default=None, max_length=500)
+    target_customer: str | None = Field(default=None, max_length=1000)
+    primary_goal: str | None = Field(default=None, max_length=1000)
+    budget: str | None = Field(default=None, max_length=500)
+    style_preferences: str | None = Field(default=None, max_length=1000)
+    product_or_service_details: str | None = Field(default=None, max_length=2000)
+    required_features: str | None = Field(default=None, max_length=2000)
+    constraints: str | None = Field(default=None, max_length=2000)
+    forbidden_actions: str | None = Field(default=None, max_length=2000)
+
+
 class RunCreate(BaseModel):
     command: str = Field(..., min_length=3, max_length=4000)
     mode: RunMode = "mock"
@@ -30,6 +44,7 @@ class RunCreate(BaseModel):
     real_coding_max_repair_attempts: int = Field(default=0, ge=0, le=1)
     max_cost_usd: float = Field(default=0.25, gt=0, le=5)
     approval_ids: list[str] = Field(default_factory=list)
+    business_intake: BusinessIntake | None = None
 
 
 class AgentInfo(BaseModel):

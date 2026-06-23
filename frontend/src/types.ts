@@ -309,7 +309,7 @@ export interface CreateRunPayload {
   command: string;
   mode: "mock" | "live";
   project_id?: string | null;
-  run_type: "business_launch_plan" | "prototype_build" | "continuation" | "website_update" | "provider_test" | "research_only" | "research";
+  run_type: "business_builder" | "business_launch_plan" | "prototype_build" | "continuation" | "website_update" | "provider_test" | "research_only" | "research";
   allow_file_writes: boolean;
   allow_safe_commands: boolean;
   allow_web_search: boolean;
@@ -323,6 +323,21 @@ export interface CreateRunPayload {
   real_coding_max_repair_attempts: number;
   max_cost_usd: number;
   approval_ids?: string[];
+  business_intake?: BusinessIntake | null;
+}
+
+export interface BusinessIntake {
+  idea: string;
+  business_type?: string | null;
+  market_location?: string | null;
+  target_customer?: string | null;
+  primary_goal?: string | null;
+  budget?: string | null;
+  style_preferences?: string | null;
+  product_or_service_details?: string | null;
+  required_features?: string | null;
+  constraints?: string | null;
+  forbidden_actions?: string | null;
 }
 
 export interface ApprovalRequest {
@@ -380,6 +395,7 @@ export interface RunUsageSummary {
   real_coding_agent?: Record<string, any>;
   project_sanity_validation?: Record<string, any>;
   memory_control?: Record<string, any>;
+  business_builder?: Record<string, any>;
 }
 
 export interface PlannedAgent {
