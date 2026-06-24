@@ -1,3 +1,5 @@
+import hashlib
+import html
 import json
 import sqlite3
 import uuid
@@ -100,6 +102,9 @@ async def execute_run(
     real_coding_max_files: int | None = None,
     real_coding_max_repair_attempts: int = 0,
     business_intake: BusinessIntake | None = None,
+    business_phase: str = "phase_1",
+    source_run_id: str | None = None,
+    confirm_local_prototype: bool = False,
     max_cost_usd: float | None = None,
 ) -> RunResult:
     return await ExecutionEngine().execute_run(
@@ -119,6 +124,9 @@ async def execute_run(
         real_coding_max_files=real_coding_max_files,
         real_coding_max_repair_attempts=real_coding_max_repair_attempts,
         business_intake=business_intake,
+        business_phase=business_phase,
+        source_run_id=source_run_id,
+        confirm_local_prototype=confirm_local_prototype,
         max_cost_usd=max_cost_usd,
     )
 
@@ -182,6 +190,9 @@ class ExecutionEngine:
         real_coding_max_files: int | None = None,
         real_coding_max_repair_attempts: int = 0,
         business_intake: BusinessIntake | None = None,
+        business_phase: str = "phase_1",
+        source_run_id: str | None = None,
+        confirm_local_prototype: bool = False,
         max_cost_usd: float | None = None,
     ) -> RunRecord:
         self._use_memory_for_current_run = use_memory
@@ -208,6 +219,28 @@ class ExecutionEngine:
                 memory=memory,
             )
         if run_type == "business_builder":
+            if business_phase == "phase_2a_local_prototype":
+                return await self._execute_business_builder_phase2a(
+                    command=command,
+                    mode=mode,
+                    project_id=project_id,
+                    allow_file_writes=allow_file_writes,
+                    allow_safe_commands=allow_safe_commands,
+                    allow_web_search=allow_web_search,
+                    allow_ceo_live=allow_ceo_live,
+                    use_memory=use_memory,
+                    use_real_coding_agent=use_real_coding_agent,
+                    allow_live_coding_model_call=allow_live_coding_model_call,
+                    real_coding_dry_run=real_coding_dry_run,
+                    real_coding_model=real_coding_model,
+                    real_coding_max_files=real_coding_max_files,
+                    real_coding_max_repair_attempts=real_coding_max_repair_attempts,
+                    source_run_id=source_run_id,
+                    confirm_local_prototype=confirm_local_prototype,
+                    run_id=run_id,
+                    started_at=started_at,
+                    memory=memory,
+                )
             return await self._execute_business_builder(
                 command=command,
                 mode=mode,
@@ -818,6 +851,226 @@ class ExecutionEngine:
             memory_updates=[],
             agent_plan=agent_plan.model_dump(),
             model_selection=selected_models,
+        )
+        return self._finalize_run(record)
+
+    async def _execute_business_builder_phase2a(
+        self,
+        *,
+        command: str,
+        mode: str,
+        project_id: str | None,
+        allow_file_writes: bool,
+        allow_safe_commands: bool,
+        allow_web_search: bool,
+        allow_ceo_live: bool,
+        use_memory: bool,
+        use_real_coding_agent: bool,
+        allow_live_coding_model_call: bool,
+        real_coding_dry_run: bool,
+        real_coding_model: str | None,
+        real_coding_max_files: int | None,
+        real_coding_max_repair_attempts: int,
+        source_run_id: str | None,
+        confirm_local_prototype: bool,
+        run_id: str,
+        started_at: datetime,
+        memory,
+    ) -> RunRecord:
+        active_project_id = project_id or ""
+        self._validate_phase2a_entry(
+            mode=mode,
+            project_id=active_project_id,
+            allow_file_writes=allow_file_writes,
+            allow_safe_commands=allow_safe_commands,
+            allow_web_search=allow_web_search,
+            allow_ceo_live=allow_ceo_live,
+            use_memory=use_memory,
+            use_real_coding_agent=use_real_coding_agent,
+            allow_live_coding_model_call=allow_live_coding_model_call,
+            real_coding_dry_run=real_coding_dry_run,
+            real_coding_model=real_coding_model,
+            real_coding_max_files=real_coding_max_files,
+            real_coding_max_repair_attempts=real_coding_max_repair_attempts,
+            source_run_id=source_run_id,
+            confirm_local_prototype=confirm_local_prototype,
+        )
+        source = self._load_phase2a_source_run(source_run_id or "", active_project_id)
+        project_manager = ProjectWorkspaceManager(self.settings)
+        project_workspace = project_manager.ensure_project_workspace(active_project_id)
+        project_manager.create_run_log_folder(run_id)
+
+        policy = self._phase2a_policy()
+        build_spec = self._phase2a_build_spec(source["strategic_decisions"], source["build_handoff"], policy)
+        prototype_files = self._render_phase2a_prototype_files(build_spec, policy, source_run_id or "", active_project_id, run_id)
+        generated_entries = [
+            project_manager.write_project_file(
+                active_project_id,
+                f"prototypes/{run_id}/{name}",
+                content,
+                "Local Prototype Renderer",
+                run_id,
+                f"Business Builder Phase 2A local prototype file {name}.",
+            )
+            for name, content in prototype_files.items()
+        ]
+        file_manifest = self._phase2a_file_manifest(project_manager, active_project_id, run_id, source_run_id or "", [entry.path for entry in generated_entries])
+        technical_qa = self._phase2a_technical_qa(project_manager, active_project_id, run_id)
+        if "BLOCKED:" in technical_qa:
+            raise HTTPException(status_code=500, detail="Business Builder Phase 2A technical QA failed; prototype was not marked completed.")
+        visual_qa = "WARN: Visual evidence not captured because the existing local browser runtime was unavailable."
+        state = {
+            "phase": "2a",
+            "status": "local_prototype_completed",
+            "source_run_id": source_run_id,
+            "prototype_mode": "local_demo_only",
+            "prototype_created": True,
+            "public_launch_allowed": False,
+            "external_actions_taken": [],
+            "personal_data_collected": False,
+            "provider_calls": 0,
+        }
+        final_report = self._phase2a_final_report(active_project_id, run_id, source_run_id or "", file_manifest, technical_qa, visual_qa)
+
+        artifact_payloads = {
+            "phase2a_source_handoff.json": source["source_handoff"],
+            "phase2a_policy.json": policy,
+            "phase2a_build_spec.json": build_spec,
+            "prototype_file_manifest.json": file_manifest,
+            "prototype_technical_qa.md": technical_qa,
+            "prototype_visual_qa.md": visual_qa,
+            "prototype_final_report.md": final_report,
+            "phase2a_local_prototype_state.json": state,
+        }
+        artifact_records = []
+        for name, content in artifact_payloads.items():
+            artifact_records.append(
+                self.artifacts.save_text(
+                    run_id=run_id,
+                    name=name,
+                    artifact_type="json" if name.endswith(".json") else "markdown",
+                    content=content if isinstance(content, str) else json.dumps(content, indent=2),
+                    agent_name=self._phase2a_artifact_agent(name),
+                    summary=f"Business Builder Phase 2A artifact: {name}.",
+                )
+            )
+
+        events = [
+            self._phase2a_event(run_id, "Source Handoff Validator", "Validated immutable Phase 1.1 handoff", "Validated completed source run, required artifacts, project match, public-launch boundary, and external-action history.", artifact_records[0].id),
+            self._phase2a_event(run_id, "Phase 2A Policy Compiler", "Compiled deterministic local-demo policy", "System policy narrowed the prototype to local demo-only behavior.", artifact_records[1].id),
+            self._phase2a_event(run_id, "Local Prototype Renderer", "Rendered local HTML prototype files", f"Generated {len(generated_entries)} files under prototypes/{run_id}/.", artifact_records[3].id),
+            self._phase2a_event(run_id, "Technical QA", "Verified local prototype safety checks", technical_qa, artifact_records[4].id),
+            self._phase2a_event(run_id, "Visual Evidence Capture", "Recorded visual evidence status", visual_qa, artifact_records[5].id),
+            self._phase2a_event(run_id, "Final Prototype Report", "Prepared Phase 2A completion report", final_report, artifact_records[6].id),
+        ]
+        completed_at = datetime.now(UTC)
+        metrics = RunMetrics(
+            total_estimated_tokens=0,
+            total_estimated_cost_usd=0,
+            agents_used=len(events),
+            tasks_completed=len(events),
+            run_duration_seconds=round((completed_at - started_at).total_seconds(), 3),
+            memory_chunks_retrieved=0,
+        )
+        project_manifest = project_manager.append_project_run(active_project_id, run_id, f"Business Builder Phase 2A local prototype completed from source run {source_run_id}.")
+        project_manager.write_run_logs(
+            run_id=run_id,
+            run_summary={
+                "run_id": run_id,
+                "project_id": active_project_id,
+                "run_type": "business_builder",
+                "business_phase": "phase_2a_local_prototype",
+                "status": "completed",
+                "selected_workflow": "business_builder_phase2a_local_prototype",
+                "files_created": [entry.path for entry in generated_entries],
+                "files_edited": [],
+                "commands": [],
+                "estimated_cost_usd": 0,
+            },
+            timeline=[event.model_dump() for event in events],
+            commands=[],
+            project_manifest=project_manifest,
+        )
+        record = RunRecord(
+            run_id=run_id,
+            command=command,
+            mode="mock",
+            project_id=active_project_id,
+            run_type="business_builder",
+            status="completed",
+            started_at=started_at,
+            completed_at=completed_at,
+            events=events,
+            agents=[
+                AgentInfo(name=event.agent_name, role=event.agent_role, assigned_model="none", status="completed", latest_action=event.action_summary, completed_work=[event.output_summary])
+                for event in events
+            ],
+            task_graph=build_default_task_graph(),
+            metrics=metrics,
+            memory=memory,
+            final_output=FinalOutput(
+                summary=f"Business Builder Phase 2A local prototype completed for project {active_project_id}.",
+                what_was_done=[
+                    "Validated the completed Phase 1.1 source handoff.",
+                    "Compiled a deterministic local-demo-only safety policy.",
+                    f"Created local prototype files under prototypes/{run_id}/.",
+                    "Ran technical QA without safe commands or external calls.",
+                    "Recorded visual evidence status without installing browser tooling.",
+                ],
+                recommended_next_actions=["Preview the local prototype and review Phase 2A QA before considering any Phase 2B refinement."],
+                generated_artifacts=[artifact.name for artifact in artifact_records],
+            ),
+            artifacts=artifact_records,
+            workspace=WorkspaceSummary(root=project_manager.public_root(active_project_id), files_created=[entry.path for entry in generated_entries], files_edited=[], commands_run=[], command_success=True),
+            project_workspace=ProjectWorkspaceSummary(project_id=active_project_id, root=project_workspace.root, files_created=[entry.path for entry in generated_entries], files_edited=[], commands_run=[], command_success=True),
+            models_used=["none"],
+            project_files_created=[entry.path for entry in generated_entries],
+            project_files_updated=[],
+            commands_run=[],
+            usage_summary={
+                "estimated_cost_usd": 0,
+                "estimated_tokens": 0,
+                "agents_used": len(events),
+                "models_used": ["none"],
+                "selected_workflow": "business_builder_phase2a_local_prototype",
+                "search_needed": False,
+                "search_unavailable": False,
+                "business_builder": {
+                    "phase": "2a",
+                    "business_phase": "phase_2a_local_prototype",
+                    "status": "local_prototype_completed",
+                    "source_run_id": source_run_id,
+                    "prototype_mode": "local_demo_only",
+                    "personal_data": "not_collected",
+                    "external_calls": 0,
+                    "public_launch_readiness": {"status": "not_ready"},
+                    "preview_route": file_manifest["preview_route"],
+                    "prototype_files": file_manifest["generated_files"],
+                    "technical_qa": {"status": "passed", "artifact": "prototype_technical_qa.md"},
+                    "visual_evidence": {"status": "not_captured", "reason": visual_qa},
+                    "actual_provider": "deterministic_local",
+                    "actual_model": "none",
+                    "live_call_made": False,
+                    "provider_call_status": "not_called_deterministic",
+                    "external_actions_taken": [],
+                    "safe_commands_executed": 0,
+                },
+            },
+            memory_updates=[],
+            agent_plan={
+                "selected_workflow": "business_builder_phase2a_local_prototype",
+                "selected_agents": [
+                    {"agent_id": "source_handoff_validator"},
+                    {"agent_id": "phase2a_policy_compiler"},
+                    {"agent_id": "local_prototype_renderer"},
+                    {"agent_id": "technical_qa"},
+                    {"agent_id": "visual_evidence_capture"},
+                    {"agent_id": "final_prototype_report"},
+                ],
+                "search_needed": False,
+                "search_unavailable": False,
+            },
+            model_selection={},
         )
         return self._finalize_run(record)
 
@@ -2095,6 +2348,472 @@ class ExecutionEngine:
                 self._apply_memory_control_summary(record)
                 self._save_run(record)
         return record
+
+    def _validate_phase2a_entry(
+        self,
+        *,
+        mode: str,
+        project_id: str,
+        allow_file_writes: bool,
+        allow_safe_commands: bool,
+        allow_web_search: bool,
+        allow_ceo_live: bool,
+        use_memory: bool,
+        use_real_coding_agent: bool,
+        allow_live_coding_model_call: bool,
+        real_coding_dry_run: bool,
+        real_coding_model: str | None,
+        real_coding_max_files: int | None,
+        real_coding_max_repair_attempts: int,
+        source_run_id: str | None,
+        confirm_local_prototype: bool,
+    ) -> None:
+        checks = [
+            (bool(project_id), "Business Builder Phase 2A requires project_id."),
+            (mode == "mock", "Business Builder Phase 2A requires mode=mock."),
+            (allow_file_writes, "Business Builder Phase 2A requires allow_file_writes=true."),
+            (not allow_safe_commands, "Business Builder Phase 2A requires allow_safe_commands=false."),
+            (not allow_web_search, "Business Builder Phase 2A requires allow_web_search=false."),
+            (not allow_ceo_live, "Business Builder Phase 2A requires allow_ceo_live=false."),
+            (not use_memory, "Business Builder Phase 2A requires use_memory=false."),
+            (not use_real_coding_agent, "Business Builder Phase 2A does not allow Real Coding Agent."),
+            (not allow_live_coding_model_call, "Business Builder Phase 2A does not allow live coding model calls."),
+            (not real_coding_dry_run, "Business Builder Phase 2A does not use coding dry-run."),
+            (real_coding_model is None, "Business Builder Phase 2A does not accept a coding model."),
+            (real_coding_max_files is None, "Business Builder Phase 2A does not accept coding file limits."),
+            (real_coding_max_repair_attempts == 0, "Business Builder Phase 2A does not allow coding repair attempts."),
+            (bool(source_run_id and source_run_id.strip()), "Business Builder Phase 2A requires source_run_id."),
+            (confirm_local_prototype, "Business Builder Phase 2A requires confirm_local_prototype=true."),
+        ]
+        for ok, message in checks:
+            if not ok:
+                raise HTTPException(status_code=422, detail=message)
+
+    def _load_phase2a_source_run(self, source_run_id: str, project_id: str) -> dict[str, Any]:
+        source_record = self._get_saved_run(source_run_id)
+        if source_record is None:
+            raise HTTPException(status_code=404, detail="Business Builder Phase 2A source run was not found.")
+        if source_record.status != "completed":
+            raise HTTPException(status_code=422, detail="Business Builder Phase 2A source run must be completed.")
+        if source_record.run_type != "business_builder":
+            raise HTTPException(status_code=422, detail="Business Builder Phase 2A source run must be a business_builder run.")
+        if source_record.project_id != project_id:
+            raise HTTPException(status_code=422, detail="Business Builder Phase 2A source run must belong to the same project_id.")
+        detail = source_record.usage_summary.get("business_builder", {})
+        if str(detail.get("phase")) != "1":
+            raise HTTPException(status_code=422, detail="Business Builder Phase 2A source run must be a Phase 1.1 planning run.")
+        if str(detail.get("planning_version", "")) != "1.1":
+            raise HTTPException(status_code=422, detail="Business Builder Phase 2A source run must be Phase 1.1 compatible.")
+        artifacts = {artifact.name: artifact for artifact in self.artifacts.list_artifacts(source_run_id)}
+        required = {"strategic_decisions.json", "build_handoff.json", "business_builder_state.json"}
+        missing = sorted(required - set(artifacts))
+        if missing:
+            raise HTTPException(status_code=422, detail=f"Business Builder Phase 2A source run is missing artifacts: {', '.join(missing)}.")
+        strategic_decisions = self._read_artifact_json(artifacts["strategic_decisions.json"])
+        build_handoff = self._read_artifact_json(artifacts["build_handoff.json"])
+        state = self._read_artifact_json(artifacts["business_builder_state.json"])
+        if state.get("public_launch_readiness", {}).get("status") != "not_ready":
+            raise HTTPException(status_code=422, detail="Business Builder Phase 2A source run must keep public launch readiness status as not_ready.")
+        if state.get("external_actions_taken"):
+            raise HTTPException(status_code=422, detail="Business Builder Phase 2A source run must not have recorded external actions.")
+        integrity_parts = []
+        for name in sorted(required):
+            path = Path(artifacts[name].path)
+            integrity_parts.append(f"{name}:{hashlib.sha256(path.read_bytes()).hexdigest()}")
+        source_handoff = {
+            "source_run_id": source_run_id,
+            "source_project_id": project_id,
+            "source_planning_version": strategic_decisions.get("planning_version", "1.1"),
+            "source_artifact_names": sorted(required),
+            "source_handoff_hash_or_integrity_summary": hashlib.sha256("|".join(integrity_parts).encode("utf-8")).hexdigest(),
+        }
+        return {
+            "record": source_record,
+            "strategic_decisions": strategic_decisions,
+            "build_handoff": build_handoff,
+            "state": state,
+            "source_handoff": source_handoff,
+        }
+
+    def _get_saved_run(self, run_id: str) -> RunRecord | None:
+        with sqlite3.connect(self.db_path) as conn:
+            row = conn.execute("SELECT payload FROM runs WHERE run_id = ?", (run_id,)).fetchone()
+        if not row:
+            return None
+        return RunRecord.model_validate_json(row[0])
+
+    def _read_artifact_json(self, artifact) -> dict[str, Any]:
+        try:
+            return json.loads(Path(artifact.path).read_text(encoding="utf-8"))
+        except Exception as exc:
+            raise HTTPException(status_code=422, detail=f"Business Builder Phase 2A source artifact {artifact.name} is not valid JSON.") from exc
+
+    def _phase2a_policy(self) -> dict[str, Any]:
+        return {
+            "policy_source": "system_deterministic",
+            "prototype_mode": "local_demo_only",
+            "personal_data": "not_collected",
+            "external_submission": False,
+            "external_calls": False,
+            "payment": False,
+            "orders": False,
+            "public_launch": False,
+            "trace_note": "System policy narrowed the prototype to local demo-only behavior.",
+            "allowed_form_fields": ["interest type", "use-case preference", "plain/flavour preference", "optional fictional sample note"],
+            "disallowed_fields": ["name", "nickname", "email", "phone", "city", "area", "address", "contact method", "consent", "payment", "order", "delivery"],
+            "canonical_cta": "Save sample interest (demo)",
+            "canonical_confirmation": "Demo saved locally. No order was placed, no real personal data was collected, and no external message was sent.",
+        }
+
+    def _phase2a_build_spec(self, decisions: dict[str, Any], handoff: dict[str, Any], policy: dict[str, Any]) -> dict[str, Any]:
+        positioning = decisions.get("positioning", {})
+        website_spec = decisions.get("website_spec", {})
+        offer = decisions.get("offer_pricing", {})
+        customer = decisions.get("customer_wedge", {})
+        safe_products = [
+            item
+            for item in offer.get("product_status_labels", [])
+            if isinstance(item, dict) and not _contains_business_builder_capability(str(item.get("label", "")))
+        ][:6]
+        if not safe_products:
+            safe_products = [{"label": "Plain Greek yogurt concept", "status": "planned", "notes": "Product facts remain pending owner approval."}]
+        section_ids = ["header", "hero", "product-concept", "everyday-use", "starter-range", "trust-transparency", "availability-status", "faq", "sample-interest", "footer-disclaimer"]
+        faq_topics = _clean_list(website_spec.get("faq_topics", []), limit=5) or ["product status", "pricing status", "availability", "claims policy", "demo form behavior"]
+        return {
+            "title": "Local Greek Yogurt Prototype",
+            "safe_customer_promise": str(positioning.get("safe_customer_promise") or "A thick, simple yogurt option for ordinary breakfast and snack moments, with product details and availability stated only when approved."),
+            "primary_launch_segment": str(customer.get("primary_launch_segment") or "local everyday yogurt customers"),
+            "primary_use_case": str(customer.get("primary_use_case") or "breakfast and snack moments"),
+            "safe_page_sections": section_ids,
+            "safe_cta_text": policy["canonical_cta"],
+            "safe_faq_themes": faq_topics,
+            "approved_product_statuses": safe_products,
+            "copy_constraints": [
+                "This is a local prototype.",
+                "Public availability is not confirmed.",
+                "No online orders are accepted.",
+                "No payments are accepted.",
+                "No real personal data is collected.",
+                "No external message is sent.",
+            ],
+            "prototype_mode": policy["prototype_mode"],
+            "form_contract": {
+                "allowed_fields": policy["allowed_form_fields"],
+                "note_help": "Use a fictional example only. Do not enter real contact or personal information.",
+                "button_text": policy["canonical_cta"],
+                "confirmation_text": policy["canonical_confirmation"],
+                "no_endpoint": True,
+                "no_storage": True,
+            },
+            "disallowed_content": [
+                "prices",
+                "nutrition values",
+                "protein values",
+                "ingredients",
+                "medical benefits",
+                "food-safety claims",
+                "certifications",
+                "shelf-life claims",
+                "delivery promises",
+                "reviews",
+                "ratings",
+                "competitor comparisons",
+                "real contact collection",
+                "orders",
+                "payments",
+            ],
+            "availability_wording": _phase2a_safe_availability_wording(website_spec.get("safe_availability_wording")),
+            "source_handoff_reference": {
+                "section_contract_count": len(handoff.get("page_or_section_contracts", [])) if isinstance(handoff, dict) else 0,
+                "content_rules_present": bool(isinstance(handoff, dict) and handoff.get("content_rules")),
+            },
+            "policy_trace_note": policy["trace_note"],
+        }
+
+    def _render_phase2a_prototype_files(self, spec: dict[str, Any], policy: dict[str, Any], source_run_id: str, project_id: str, run_id: str) -> dict[str, str]:
+        index_html = self._render_phase2a_index_html(spec, policy)
+        manifest = {
+            "project_id": project_id,
+            "phase2a_run_id": run_id,
+            "source_run_id": source_run_id,
+            "prototype_mode": "local_demo_only",
+            "entrypoint": "index.html",
+            "generated_files": ["index.html", "README.md", "prototype_manifest.json"],
+            "external_calls": 0,
+            "personal_data_collected": False,
+            "public_launch_allowed": False,
+        }
+        readme = f"""# Business Builder Phase 2A Local Prototype
+
+This folder contains a deterministic local-only landing-page prototype generated from source planning run `{source_run_id}`.
+
+## Boundaries
+
+- This is a local prototype.
+- Public availability is not confirmed.
+- No online orders are accepted.
+- No payments are accepted.
+- No real personal data is collected.
+- No external message is sent.
+
+Open `index.html` locally or through the controlled TheHiveMind preview endpoint.
+"""
+        return {
+            "index.html": index_html,
+            "README.md": readme,
+            "prototype_manifest.json": json.dumps(manifest, indent=2),
+        }
+
+    def _render_phase2a_index_html(self, spec: dict[str, Any], policy: dict[str, Any]) -> str:
+        title = html.escape(str(spec["title"]))
+        promise = html.escape(str(spec["safe_customer_promise"]))
+        segment = html.escape(str(spec["primary_launch_segment"]))
+        use_case = html.escape(str(spec["primary_use_case"]))
+        availability = html.escape(str(spec["availability_wording"]))
+        constraints = [html.escape(str(item)) for item in spec["copy_constraints"]]
+        products = "\n".join(
+            f'<article class="card"><span>{html.escape(str(item.get("status", "planned")))}</span><h3>{html.escape(str(item.get("label", "")))}</h3><p>{html.escape(str(item.get("notes", "Details pending approval.")))}</p></article>'
+            for item in spec["approved_product_statuses"]
+        )
+        faq_items = "\n".join(
+            f'<details><summary>{html.escape(str(topic)).title()}</summary><p>This item is shown as a prototype planning topic. Final facts must be approved before public use.</p></details>'
+            for topic in spec["safe_faq_themes"]
+        )
+        disclaimer_items = "\n".join(f"<li>{item}</li>" for item in constraints)
+        confirmation = html.escape(policy["canonical_confirmation"])
+        note_help = html.escape(spec["form_contract"]["note_help"])
+        cta = html.escape(policy["canonical_cta"])
+        return f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{title}</title>
+  <style>
+    :root {{ color-scheme: light; --cream:#fbf6ec; --paper:#fffdf8; --green:#54705b; --mint:#dceadd; --charcoal:#222420; --muted:#666d62; --line:#ddd2bf; }}
+    * {{ box-sizing:border-box; }}
+    body {{ margin:0; font-family:Inter, Arial, sans-serif; background:var(--cream); color:var(--charcoal); line-height:1.55; }}
+    header, main, footer {{ width:min(1120px, calc(100% - 32px)); margin:0 auto; }}
+    header {{ display:flex; align-items:center; justify-content:space-between; padding:20px 0; border-bottom:1px solid var(--line); gap:16px; }}
+    nav {{ display:flex; gap:14px; flex-wrap:wrap; font-size:13px; }}
+    a {{ color:var(--green); text-decoration:none; font-weight:700; }}
+    .brand {{ font-weight:900; letter-spacing:.04em; text-transform:uppercase; }}
+    .hero {{ display:grid; grid-template-columns:minmax(0, 1.1fr) minmax(280px, .9fr); gap:34px; align-items:center; padding:54px 0 34px; }}
+    h1 {{ font-size:clamp(38px, 7vw, 76px); line-height:.96; margin:0 0 18px; letter-spacing:0; }}
+    h2 {{ font-size:28px; margin:0 0 12px; }}
+    h3 {{ margin:6px 0 8px; }}
+    p {{ margin:0 0 12px; }}
+    .badge {{ display:inline-block; background:var(--mint); color:#2c5134; border:1px solid #b7d3bb; border-radius:999px; padding:7px 10px; font-size:12px; font-weight:800; margin-bottom:14px; }}
+    .button {{ display:inline-block; border:0; background:var(--green); color:white; border-radius:8px; padding:12px 16px; font-weight:800; cursor:pointer; }}
+    .secondary {{ background:transparent; color:var(--green); border:1px solid var(--green); margin-left:8px; }}
+    .visual {{ min-height:330px; border-radius:16px; background:radial-gradient(circle at 30% 25%, #fff 0 10%, transparent 11%), linear-gradient(135deg, #fff8e9, #dfead8); border:1px solid var(--line); display:grid; place-items:center; text-align:center; padding:28px; }}
+    .visual strong {{ font-size:22px; }}
+    section {{ padding:28px 0; }}
+    .grid {{ display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:14px; }}
+    .card, details, form {{ background:var(--paper); border:1px solid var(--line); border-radius:8px; padding:18px; box-shadow:0 8px 24px rgba(70, 54, 30, .05); }}
+    .card span {{ color:var(--green); font-size:11px; text-transform:uppercase; font-weight:900; letter-spacing:.08em; }}
+    .status {{ border-left:5px solid var(--green); }}
+    ul {{ padding-left:20px; }}
+    label {{ display:block; font-size:13px; font-weight:800; margin-top:12px; }}
+    select, textarea {{ width:100%; margin-top:6px; border:1px solid var(--line); border-radius:8px; background:white; padding:10px; color:var(--charcoal); }}
+    textarea {{ min-height:88px; resize:vertical; }}
+    .help {{ color:var(--muted); font-size:12px; margin-top:6px; }}
+    .confirmation {{ min-height:24px; color:#31593a; font-weight:800; margin-top:12px; }}
+    footer {{ border-top:1px solid var(--line); margin-top:24px; padding:26px 0 34px; color:var(--muted); }}
+    @media (max-width: 780px) {{ .hero, .grid {{ grid-template-columns:1fr; }} header {{ align-items:flex-start; flex-direction:column; }} h1 {{ font-size:42px; }} }}
+  </style>
+</head>
+<body>
+  <header id="header">
+    <div class="brand">{title}</div>
+    <nav aria-label="Prototype navigation">
+      <a href="#product-concept">Concept</a>
+      <a href="#starter-range">Starter range</a>
+      <a href="#availability-status">Availability</a>
+      <a href="#sample-interest">Demo form</a>
+    </nav>
+  </header>
+  <main>
+    <section id="hero" class="hero">
+      <div>
+        <span class="badge">Local prototype only</span>
+        <h1>Simple Greek yogurt for everyday routines.</h1>
+        <p>{promise}</p>
+        <p>This is a local prototype. Public availability is not confirmed.</p>
+        <a class="button" href="#sample-interest">Explore the prototype</a>
+        <a class="button secondary" href="#availability-status">View availability status</a>
+      </div>
+      <div class="visual" aria-label="CSS-only product concept placeholder">
+        <div><strong>Product visual placeholder</strong><p>Use owner-approved product imagery later.</p></div>
+      </div>
+    </section>
+    <section id="product-concept">
+      <h2>Product concept</h2>
+      <p>A warm, practical yogurt concept for {segment}. The first use case is {use_case}.</p>
+    </section>
+    <section id="everyday-use">
+      <h2>Everyday use moments</h2>
+      <div class="grid">
+        <article class="card"><span>breakfast</span><h3>Morning bowls</h3><p>Presented as an example only until product facts are approved.</p></article>
+        <article class="card"><span>snacks</span><h3>Simple snack pause</h3><p>Routine use context without health or nutrition claims.</p></article>
+        <article class="card"><span>home</span><h3>Shared table moments</h3><p>Plain, practical positioning for feedback before public launch.</p></article>
+      </div>
+    </section>
+    <section id="starter-range">
+      <h2>Starter range</h2>
+      <div class="grid">{products}</div>
+    </section>
+    <section id="trust-transparency">
+      <h2>Trust and transparency</h2>
+      <div class="card"><p>Product details, pricing, availability, claims, and operations remain pending approval. The prototype avoids unsupported claims and records no real customer data.</p></div>
+    </section>
+    <section id="availability-status">
+      <h2>Availability status</h2>
+      <div class="card status"><p>{availability}</p><ul>{disclaimer_items}</ul></div>
+    </section>
+    <section id="faq">
+      <h2>FAQ</h2>
+      <div class="grid">{faq_items}</div>
+    </section>
+    <section id="sample-interest">
+      <h2>Local demo-only sample-interest form</h2>
+      <form id="demo-form">
+        <label>Interest type<select><option>General interest</option><option>Product question</option><option>Future feedback</option></select></label>
+        <label>Use-case preference<select><option>Breakfast</option><option>Snack</option><option>Home routine</option></select></label>
+        <label>Plain/flavour preference<select><option>Plain</option><option>Simple flavour</option><option>Not sure yet</option></select></label>
+        <label>Optional fictional sample note<textarea placeholder="Example: A fictional office breakfast use case."></textarea></label>
+        <p class="help">{note_help}</p>
+        <button class="button" type="submit">{cta}</button>
+        <p id="demo-confirmation" class="confirmation" role="status" aria-live="polite"></p>
+      </form>
+    </section>
+  </main>
+  <footer id="footer-disclaimer">
+    <strong>Prototype disclaimer:</strong> This page is for local review only. No online orders are accepted. No payments are accepted. No real personal data is collected. No external message is sent.
+  </footer>
+  <script>
+    const form = document.getElementById('demo-form');
+    const confirmation = document.getElementById('demo-confirmation');
+    form.addEventListener('submit', function (event) {{
+      event.preventDefault();
+      confirmation.textContent = '{confirmation}';
+    }});
+  </script>
+</body>
+</html>
+"""
+
+    def _phase2a_file_manifest(self, manager: ProjectWorkspaceManager, project_id: str, run_id: str, source_run_id: str, relative_paths: list[str]) -> dict[str, Any]:
+        files = []
+        for relative_path in relative_paths:
+            path = manager.resolve(project_id, relative_path)
+            files.append(
+                {
+                    "path": relative_path,
+                    "size_bytes": path.stat().st_size,
+                    "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                }
+            )
+        return {
+            "workspace_path": f"{manager.public_root(project_id)}/prototypes/{run_id}",
+            "generated_files": files,
+            "preview_route": f"/api/projects/{project_id}/prototypes/{run_id}/preview",
+            "source_run_id": source_run_id,
+        }
+
+    def _phase2a_technical_qa(self, manager: ProjectWorkspaceManager, project_id: str, run_id: str) -> str:
+        required_files = ["index.html", "README.md", "prototype_manifest.json"]
+        root = manager.resolve(project_id, f"prototypes/{run_id}", allow_directory=True)
+        index_path = root / "index.html"
+        html_text = index_path.read_text(encoding="utf-8") if index_path.exists() else ""
+        checks: list[tuple[str, str]] = []
+        checks.append(("PASS" if all((root / name).is_file() for name in required_files) else "BLOCKED", "required prototype files exist"))
+        checks.append(("PASS" if html_text.strip() else "BLOCKED", "index.html is non-empty"))
+        for section_id in ["header", "hero", "product-concept", "everyday-use", "starter-range", "trust-transparency", "availability-status", "faq", "sample-interest", "footer-disclaimer"]:
+            checks.append(("PASS" if f'id="{section_id}"' in html_text else "BLOCKED", f"required section id exists: {section_id}"))
+        for text in [
+            "This is a local prototype.",
+            "Public availability is not confirmed.",
+            "No online orders are accepted.",
+            "No payments are accepted.",
+            "No real personal data is collected.",
+            "No external message is sent.",
+        ]:
+            checks.append(("PASS" if text in html_text else "BLOCKED", f"safety disclaimer present: {text}"))
+        lowered = html_text.lower()
+        forbidden_checks = {
+            "no external URLs": ["http://", "https://", "mailto:", "tel:"],
+            "no fetch/XMLHttpRequest/WebSocket": ["fetch(", "xmlhttprequest", "websocket"],
+            "no localStorage/sessionStorage": ["localstorage", "sessionstorage"],
+            "no form action or backend endpoint": ["<form action", "action=", "/api/"],
+            "no unsafe personal-data fields": ['type="email"', 'type="tel"', 'name="name"', 'name="email"', 'name="phone"', 'name="city"', 'name="address"'],
+            "no banned transactional CTA text": ["buy now", "order now", "checkout", "register interest", "whatsapp"],
+            "no unsafe product or launch claims": ["certified", "protein", "medical", "guaranteed delivery", "customer reviews", "rating"],
+        }
+        for label, needles in forbidden_checks.items():
+            checks.append(("BLOCKED" if any(needle in lowered for needle in needles) else "PASS", label))
+        return "# Prototype Technical QA\n\n" + "\n".join(f"- {status}: {message}" for status, message in checks)
+
+    def _phase2a_final_report(self, project_id: str, run_id: str, source_run_id: str, manifest: dict[str, Any], technical_qa: str, visual_qa: str) -> str:
+        files = "\n".join(f"- {item['path']} ({item['size_bytes']} bytes)" for item in manifest["generated_files"])
+        return f"""# Business Builder Phase 2A Final Prototype Report
+
+## Summary
+Created a deterministic local-only landing-page prototype for project `{project_id}` from source planning run `{source_run_id}`.
+
+## Prototype
+- Workspace: `{manifest['workspace_path']}`
+- Preview: `{manifest['preview_route']}`
+
+## Files
+{files}
+
+## Boundaries
+- Provider calls: 0
+- External actions: 0
+- Safe commands: 0
+- Real personal data handling: none
+- Public launch: not_ready
+
+## Technical QA
+{technical_qa}
+
+## Visual Evidence
+{visual_qa}
+"""
+
+    def _phase2a_event(self, run_id: str, agent_name: str, action_summary: str, output_summary: str, artifact_id: str | None) -> RunEvent:
+        return RunEvent(
+            timestamp=datetime.now(UTC),
+            run_id=run_id,
+            agent_name=agent_name,
+            agent_role="Business Builder Phase 2A deterministic stage",
+            status="completed",
+            action_summary=action_summary,
+            input_summary="Business Builder Phase 1.1 source handoff plus deterministic Phase 2A local-demo policy.",
+            output_summary=output_summary,
+            model_used="none",
+            provider="deterministic_local",
+            estimated_input_tokens=0,
+            estimated_output_tokens=0,
+            estimated_tokens=0,
+            estimated_cost_usd=0,
+            estimated_cost=0,
+            artifact_id=artifact_id,
+        )
+
+    def _phase2a_artifact_agent(self, name: str) -> str:
+        if name == "phase2a_source_handoff.json":
+            return "Source Handoff Validator"
+        if name == "phase2a_policy.json":
+            return "Phase 2A Policy Compiler"
+        if name in {"phase2a_build_spec.json", "prototype_file_manifest.json"}:
+            return "Local Prototype Renderer"
+        if name == "prototype_technical_qa.md":
+            return "Technical QA"
+        if name == "prototype_visual_qa.md":
+            return "Visual Evidence Capture"
+        return "Final Prototype Report"
 
     def _business_intake_payload(self, intake: BusinessIntake) -> dict[str, str]:
         return {
@@ -4829,6 +5548,32 @@ def _canonical_business_builder_inquiry_flow() -> dict[str, Any]:
 
 def _canonical_business_builder_cta_wording() -> str:
     return "Use demo/prototype language such as Explore the prototype, Save sample interest (demo), or View availability status. Avoid real commerce or external-contact wording."
+
+
+def _phase2a_safe_availability_wording(value: Any) -> str:
+    default = "Planning-stage local prototype; products, pricing, and public availability are pending approval. The demo form is fictional and does not create a real inquiry, order, payment, contact record, or external message."
+    text = str(value or "").strip()
+    if not text:
+        return default
+    lowered = text.lower()
+    unsafe_phrases = (
+        "register interest",
+        "join interest",
+        "interest list",
+        "manual inquiry",
+        "manual inquiries",
+        "inquiries will be reviewed",
+        "ask a question",
+        "contact us",
+        "whatsapp",
+        "order",
+        "payment",
+        "delivery",
+        "submit",
+    )
+    if any(phrase in lowered for phrase in unsafe_phrases):
+        return default
+    return text
 
 
 def _contains_business_builder_capability(value: str) -> bool:

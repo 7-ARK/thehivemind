@@ -324,6 +324,9 @@ export interface CreateRunPayload {
   max_cost_usd: number;
   approval_ids?: string[];
   business_intake?: BusinessIntake | null;
+  business_phase?: "phase_1" | "phase_2a_local_prototype";
+  source_run_id?: string | null;
+  confirm_local_prototype?: boolean;
 }
 
 export interface BusinessIntake {

@@ -1,5 +1,6 @@
 import json
 import asyncio
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -28,6 +29,17 @@ REQUIRED_ARTIFACTS = {
     "planning_qa.md",
     "final_planning_report.md",
     "business_builder_state.json",
+}
+
+PHASE2A_ARTIFACTS = {
+    "phase2a_source_handoff.json",
+    "phase2a_policy.json",
+    "phase2a_build_spec.json",
+    "prototype_file_manifest.json",
+    "prototype_technical_qa.md",
+    "prototype_visual_qa.md",
+    "prototype_final_report.md",
+    "phase2a_local_prototype_state.json",
 }
 
 
@@ -64,6 +76,57 @@ def _live_decision() -> dict:
 def _artifact_content(client, run: dict, name: str) -> str:
     artifact = next(item for item in run["artifacts"] if item["name"] == name)
     return client.get(f"/api/runs/{run['run_id']}/artifacts/{artifact['id']}").json()["content"]
+
+
+def _phase1_run(client, project_id: str = "business-builder-phase2a") -> dict:
+    response = client.post(
+        "/api/runs",
+        json={
+            "command": "Business Builder Phase 1 planning only.",
+            "mode": "mock",
+            "run_type": "business_builder",
+            "project_id": project_id,
+            "allow_web_search": False,
+            "use_memory": False,
+            "business_intake": _intake(),
+        },
+    )
+    assert response.status_code == 200
+    return response.json()
+
+
+def _phase2a_payload(source_id: str, project_id: str = "business-builder-phase2a", **updates) -> dict:
+    payload = {
+        "command": f"Business Builder Phase 2A local prototype from source run {source_id}",
+        "mode": "mock",
+        "run_type": "business_builder",
+        "project_id": project_id,
+        "business_phase": "phase_2a_local_prototype",
+        "source_run_id": source_id,
+        "confirm_local_prototype": True,
+        "allow_file_writes": True,
+        "allow_safe_commands": False,
+        "allow_web_search": False,
+        "allow_ceo_live": False,
+        "use_memory": False,
+        "use_real_coding_agent": False,
+        "allow_live_coding_model_call": False,
+        "real_coding_dry_run": False,
+        "real_coding_model": None,
+        "real_coding_max_files": None,
+        "real_coding_max_repair_attempts": 0,
+        "max_cost_usd": 0.05,
+    }
+    payload.update(updates)
+    return payload
+
+
+def _mutate_saved_run(run_id: str, mutate) -> None:
+    db_path = get_settings().sqlite_path
+    with sqlite3.connect(db_path) as conn:
+        payload = json.loads(conn.execute("SELECT payload FROM runs WHERE run_id = ?", (run_id,)).fetchone()[0])
+        mutate(payload)
+        conn.execute("UPDATE runs SET status = ?, payload = ? WHERE run_id = ?", (payload["status"], json.dumps(payload), run_id))
 
 
 def test_business_builder_strict_response_schema_requires_every_property():
@@ -474,6 +537,163 @@ def test_business_builder_allowed_research_full_run_completes_without_phase2_wor
     assert not any(event["agent_name"] == "Safe Command Runner" for event in run["events"])
     assert not any(path.startswith("website/") for path in run["project_files_created"] + run["project_files_updated"])
     assert REQUIRED_ARTIFACTS <= {item["name"] for item in run["artifacts"]}
+
+
+@pytest.mark.parametrize(
+    "updates, expected",
+    [
+        ({"source_run_id": None}, "requires source_run_id"),
+        ({"confirm_local_prototype": False}, "confirm_local_prototype=true"),
+        ({"mode": "live"}, "requires mode=mock"),
+        ({"allow_file_writes": False}, "allow_file_writes must be true"),
+        ({"allow_safe_commands": True}, "allow_safe_commands must be false"),
+        ({"allow_web_search": True}, "allow_web_search must be false"),
+        ({"allow_ceo_live": True}, "allow_ceo_live must be false"),
+        ({"use_memory": True}, "use_memory must be false"),
+        ({"use_real_coding_agent": True}, "use_real_coding_agent must be false"),
+        ({"allow_live_coding_model_call": True}, "allow_live_coding_model_call must be false"),
+    ],
+)
+def test_business_builder_phase2a_rejects_invalid_request_controls(client, updates, expected):
+    source = _phase1_run(client, "business-builder-phase2a-rejects")
+    response = client.post("/api/runs", json=_phase2a_payload(source["run_id"], "business-builder-phase2a-rejects", **updates))
+    assert response.status_code == 422
+    assert expected in response.text
+
+
+def test_business_builder_phase2a_rejects_invalid_source_runs(client):
+    source = _phase1_run(client, "business-builder-phase2a-source")
+
+    wrong_project = client.post("/api/runs", json=_phase2a_payload(source["run_id"], "business-builder-other-project"))
+    assert wrong_project.status_code == 422
+    assert "same project_id" in wrong_project.text
+
+    _mutate_saved_run(source["run_id"], lambda payload: payload.update({"status": "failed"}))
+    not_completed = client.post("/api/runs", json=_phase2a_payload(source["run_id"], "business-builder-phase2a-source"))
+    assert not_completed.status_code == 422
+    assert "must be completed" in not_completed.text
+
+    source = _phase1_run(client, "business-builder-phase2a-incompatible")
+    _mutate_saved_run(source["run_id"], lambda payload: payload["usage_summary"]["business_builder"].update({"planning_version": "1.0"}))
+    incompatible = client.post("/api/runs", json=_phase2a_payload(source["run_id"], "business-builder-phase2a-incompatible"))
+    assert incompatible.status_code == 422
+    assert "Phase 1.1 compatible" in incompatible.text
+
+
+def test_business_builder_phase2a_success_creates_local_prototype_and_artifacts(client):
+    source = _phase1_run(client, "business-builder-phase2a-success")
+    source_artifact_hashes = {
+        name: Path(next(item for item in source["artifacts"] if item["name"] == name)["path"]).read_bytes()
+        for name in ["strategic_decisions.json", "build_handoff.json", "business_builder_state.json"]
+    }
+    response = client.post("/api/runs", json=_phase2a_payload(source["run_id"], "business-builder-phase2a-success"))
+    assert response.status_code == 200
+    run = response.json()
+
+    assert run["status"] == "completed"
+    assert run["usage_summary"]["selected_workflow"] == "business_builder_phase2a_local_prototype"
+    assert run["usage_summary"]["business_builder"]["phase"] == "2a"
+    assert run["usage_summary"]["business_builder"]["source_run_id"] == source["run_id"]
+    assert PHASE2A_ARTIFACTS <= {item["name"] for item in run["artifacts"]}
+    assert run["metrics"]["total_estimated_cost_usd"] == 0
+    assert run["usage_summary"]["business_builder"]["external_calls"] == 0
+    assert run["commands_run"] == []
+    assert not any(event["agent_name"] in {"Real Coding Agent", "Website Agent", "Safe Command Runner"} for event in run["events"])
+    assert {event["provider"] for event in run["events"]} == {"deterministic_local"}
+    assert {event["model_used"] for event in run["events"]} == {"none"}
+    assert sorted(run["project_files_created"]) == sorted(
+        [
+            f"prototypes/{run['run_id']}/README.md",
+            f"prototypes/{run['run_id']}/index.html",
+            f"prototypes/{run['run_id']}/prototype_manifest.json",
+        ]
+    )
+    manager = ProjectWorkspaceManager()
+    assert manager.resolve("business-builder-phase2a-success", f"prototypes/{run['run_id']}/index.html").is_file()
+    assert manager.resolve("business-builder-phase2a-success", f"prototypes/{run['run_id']}/README.md").is_file()
+    assert manager.resolve("business-builder-phase2a-success", f"prototypes/{run['run_id']}/prototype_manifest.json").is_file()
+    manifest = json.loads(_artifact_content(client, run, "prototype_file_manifest.json"))
+    assert manifest["preview_route"] == f"/api/projects/business-builder-phase2a-success/prototypes/{run['run_id']}/preview"
+    assert len(manifest["generated_files"]) == 3
+    technical_qa = _artifact_content(client, run, "prototype_technical_qa.md")
+    assert "BLOCKED:" not in technical_qa
+    state = json.loads(_artifact_content(client, run, "phase2a_local_prototype_state.json"))
+    assert state == {
+        "phase": "2a",
+        "status": "local_prototype_completed",
+        "source_run_id": source["run_id"],
+        "prototype_mode": "local_demo_only",
+        "prototype_created": True,
+        "public_launch_allowed": False,
+        "external_actions_taken": [],
+        "personal_data_collected": False,
+        "provider_calls": 0,
+    }
+    for name, before in source_artifact_hashes.items():
+        assert Path(next(item for item in source["artifacts"] if item["name"] == name)["path"]).read_bytes() == before
+
+
+def test_business_builder_phase2a_prototype_policy_and_preview(client):
+    source = _phase1_run(client, "business-builder-phase2a-policy")
+    response = client.post("/api/runs", json=_phase2a_payload(source["run_id"], "business-builder-phase2a-policy"))
+    assert response.status_code == 200
+    run = response.json()
+    html_text = ProjectWorkspaceManager().read_project_file("business-builder-phase2a-policy", f"prototypes/{run['run_id']}/index.html")
+    for section_id in ["header", "hero", "product-concept", "everyday-use", "starter-range", "trust-transparency", "availability-status", "faq", "sample-interest", "footer-disclaimer"]:
+        assert f'id="{section_id}"' in html_text
+    for text in [
+        "This is a local prototype.",
+        "Public availability is not confirmed.",
+        "No online orders are accepted.",
+        "No payments are accepted.",
+        "No real personal data is collected.",
+        "No external message is sent.",
+        "Demo saved locally. No order was placed, no real personal data was collected, and no external message was sent.",
+        "Save sample interest (demo)",
+    ]:
+        assert text in html_text
+    lowered = html_text.lower()
+    for forbidden in ["http://", "https://", "fetch(", "xmlhttprequest", "websocket", "localstorage", "sessionstorage", "mailto:", "tel:", 'type="email"', 'type="tel"', 'name="name"', 'name="city"', 'name="address"', "buy now", "order now", "checkout", "whatsapp", "register interest"]:
+        assert forbidden not in lowered
+    preview = client.get(f"/api/projects/business-builder-phase2a-policy/prototypes/{run['run_id']}/preview")
+    assert preview.status_code == 200
+    assert "text/html" in preview.headers["content-type"]
+    assert "Local demo-only sample-interest form" in preview.text
+    assert client.get("/api/projects/business-builder-phase2a-policy/prototypes/missing-run/preview").status_code == 404
+    assert client.get("/api/projects/business-builder-phase2a-policy/prototypes/..%5C..%5Csecret/preview").status_code == 404
+
+
+def test_business_builder_phase2a_filters_operational_capabilities_from_product_statuses():
+    engine = ExecutionEngine(get_settings())
+    decisions = _live_decision()
+    decisions["offer_pricing"]["product_status_labels"] = [
+        {"label": "Plain Greek yogurt", "status": "planned", "notes": "Product concept."},
+        {"label": "Online ordering", "status": "planned", "notes": "Should not render."},
+        {"label": "Delivery", "status": "planned", "notes": "Should not render."},
+        {"label": "Subscription checkout payment", "status": "planned", "notes": "Should not render."},
+    ]
+    spec = engine._phase2a_build_spec(decisions, {"page_or_section_contracts": []}, engine._phase2a_policy())
+    labels = [item["label"].lower() for item in spec["approved_product_statuses"]]
+    assert labels == ["plain greek yogurt"]
+    assert "delivery" not in json.dumps(spec["approved_product_statuses"]).lower()
+    assert "checkout" not in json.dumps(spec["approved_product_statuses"]).lower()
+    assert "payment" not in json.dumps(spec["approved_product_statuses"]).lower()
+
+
+def test_business_builder_phase2a_filters_unsafe_source_availability_wording():
+    engine = ExecutionEngine(get_settings())
+    decisions = _live_decision()
+    decisions["website_spec"]["safe_availability_wording"] = (
+        "Public availability is not yet confirmed. You can register interest or ask a question, "
+        "and inquiries will be reviewed manually as the product plan develops."
+    )
+    policy = engine._phase2a_policy()
+    spec = engine._phase2a_build_spec(decisions, {"page_or_section_contracts": []}, policy)
+    html_text = engine._render_phase2a_index_html(spec, policy).lower()
+    assert "register interest" not in html_text
+    assert "ask a question" not in html_text
+    assert "inquiries will be reviewed" not in html_text
+    assert "save sample interest (demo)" in html_text
 
 
 def test_business_builder_live_missing_approval_returns_approval_required(client):

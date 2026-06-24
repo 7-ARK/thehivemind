@@ -1,4 +1,5 @@
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import HTMLResponse
 
 from app.projects.project_workspace import ProjectWorkspaceManager
 from app.projects.schemas import ProjectFile, ProjectManifest, ProjectWorkspace
@@ -37,6 +38,17 @@ def get_project_files(project_id: str) -> list[ProjectFile]:
 def get_project_runs(project_id: str) -> dict:
     manifest = ProjectWorkspaceManager().get_project_manifest(project_id)
     return {"project_id": project_id, "runs": [item.model_dump() for item in manifest.runs]}
+
+
+@router.get("/{project_id}/prototypes/{phase2a_run_id}/preview", response_class=HTMLResponse)
+def preview_project_prototype(project_id: str, phase2a_run_id: str) -> HTMLResponse:
+    manager = ProjectWorkspaceManager()
+    if "/" in phase2a_run_id or "\\" in phase2a_run_id or ".." in phase2a_run_id:
+        raise HTTPException(status_code=404, detail="Prototype not found.")
+    path = manager.resolve(project_id, f"prototypes/{phase2a_run_id}/index.html")
+    if not path.exists() or not path.is_file():
+        raise HTTPException(status_code=404, detail="Prototype not found.")
+    return HTMLResponse(path.read_text(encoding="utf-8"))
 
 
 @router.get("/{project_id}/changes")

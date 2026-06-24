@@ -8,6 +8,7 @@ import {
   getRunCommands,
   getRunEvents,
   getRunModelSelection,
+  projectPrototypePreviewUrl,
   getRecentSearchLogs,
 } from "../../lib/api";
 import { collectRunCommands, collectRunFiles, mergeArtifacts } from "../../lib/runSummary";
@@ -165,6 +166,9 @@ export default function RunDetailViewer({ runId, projectId, onClose, onOpenProje
 function RunBusinessBuilderPanel({ run }: { run: RunResult }) {
   const detail = run.usage_summary?.business_builder;
   if (!detail) return null;
+  if (detail.phase === "2a" || detail.business_phase === "phase_2a_local_prototype") {
+    return <RunBusinessBuilderPhase2APanel run={run} detail={detail} />;
+  }
   const approvals = Array.isArray(detail.approvals_needed) ? detail.approvals_needed.map(String) : [];
   const blocked = Array.isArray(detail.blocked_external_actions) ? detail.blocked_external_actions.map(String) : [];
   const deferred = Array.isArray(detail.deferred_to_phase_2) ? detail.deferred_to_phase_2.map(String) : [];
@@ -214,6 +218,40 @@ function RunBusinessBuilderPanel({ run }: { run: RunResult }) {
       <MiniList title="Approvals Needed" items={approvals} empty="No approvals listed." />
       <MiniList title="Blocked External Actions" items={blocked} empty="No blocked external actions listed." />
       <MiniList title="Deferred To Phase 2" items={deferred} empty="Nothing deferred." />
+    </section>
+  );
+}
+
+function RunBusinessBuilderPhase2APanel({ run, detail }: { run: RunResult; detail: Record<string, any> }) {
+  const files = Array.isArray(detail.prototype_files) ? detail.prototype_files : [];
+  const previewUrl = run.project_id && run.run_id ? projectPrototypePreviewUrl(run.project_id, run.run_id) : "";
+  return (
+    <section className="bg-[#1a1b1e] border border-[#2c2e33] rounded-lg p-4 space-y-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h3 className="text-xs font-bold text-[#909296] uppercase tracking-wider font-mono">Business Builder Phase 2A</h3>
+          <p className="text-xs text-[#909296] mt-1">Controlled local landing-page prototype. No provider calls, deployments, external actions, orders, payments, or real personal data.</p>
+        </div>
+        {previewUrl && detail.status === "local_prototype_completed" && (
+          <a href={previewUrl} target="_blank" rel="noreferrer" className="bg-[#20c997] hover:bg-[#1db184] text-[#141517] px-3 py-2 rounded text-xs font-bold">
+            Preview Local Prototype
+          </a>
+        )}
+      </div>
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <Metric label="Phase" value="2A Local Prototype" />
+        <Metric label="Source Planning Run" value={String(detail.source_run_id ?? "unknown")} />
+        <Metric label="Prototype Mode" value={String(detail.prototype_mode ?? "local_demo_only")} />
+        <Metric label="Personal Data" value={String(detail.personal_data ?? "not_collected")} />
+        <Metric label="External Calls" value={String(detail.external_calls ?? 0)} />
+        <Metric label="Public Launch" value={String(detail.public_launch_readiness?.status ?? "not_ready")} />
+        <Metric label="Provider" value={String(detail.actual_provider ?? "deterministic_local")} />
+        <Metric label="Model" value={String(detail.actual_model ?? "none")} />
+        <Metric label="Technical QA" value={String(detail.technical_qa?.status ?? "unknown")} />
+        <Metric label="Visual Evidence" value={String(detail.visual_evidence?.status ?? "unknown")} />
+      </div>
+      <MiniList title="Prototype Files" items={files.map((item: any) => `${item.path} (${item.size_bytes ?? 0} bytes)`)} empty="No prototype files listed." />
+      <p className="text-xs text-[#909296]">{String(detail.visual_evidence?.reason ?? "Visual evidence status was not recorded.")}</p>
     </section>
   );
 }

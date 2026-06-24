@@ -58,6 +58,9 @@ export default function Orchestrator({ onWorkflowCompleted, onOpenProject, onOpe
   const [realCodingModel, setRealCodingModel] = useState("moonshotai/kimi-k2.7-code");
   const [realCodingMaxFiles, setRealCodingMaxFiles] = useState("12");
   const [businessIntake, setBusinessIntake] = useState<BusinessIntake>(DEFAULT_BUSINESS_INTAKE);
+  const [businessPhase, setBusinessPhase] = useState<CreateRunPayload["business_phase"]>("phase_1");
+  const [sourceRunId, setSourceRunId] = useState("");
+  const [confirmLocalPrototype, setConfirmLocalPrototype] = useState(false);
   const [maxCostUsd, setMaxCostUsd] = useState("0.25");
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<RunResult | null>(null);
@@ -70,7 +73,10 @@ export default function Orchestrator({ onWorkflowCompleted, onOpenProject, onOpe
   const promptConstraints = useMemo(() => promptConstraintState(command), [command]);
   const effectiveRunType = runType === "business_builder" ? "business_builder" : promptConstraints.forceResearchOnly ? "research_only" : promptConstraints.forceWebsiteUpdate ? "website_update" : runType;
   const isBusinessBuilder = effectiveRunType === "business_builder";
-  const businessCommand = `Business Builder Phase 1 planning only: ${businessIntake.idea.trim() || "new business idea"}`;
+  const isBusinessPhase2A = isBusinessBuilder && businessPhase === "phase_2a_local_prototype";
+  const businessCommand = isBusinessPhase2A
+    ? `Business Builder Phase 2A local prototype from source run ${sourceRunId.trim() || "source-run-id"}`
+    : `Business Builder Phase 1 planning only: ${businessIntake.idea.trim() || "new business idea"}`;
 
   const payload = useMemo<CreateRunPayload>(
     () => ({
@@ -78,11 +84,11 @@ export default function Orchestrator({ onWorkflowCompleted, onOpenProject, onOpe
       mode,
       project_id: projectId.trim() || null,
       run_type: effectiveRunType,
-      allow_file_writes: isBusinessBuilder ? false : allowFileWrites && !promptConstraints.disableFileWrites,
+      allow_file_writes: isBusinessPhase2A ? true : isBusinessBuilder ? false : allowFileWrites && !promptConstraints.disableFileWrites,
       allow_safe_commands: isBusinessBuilder ? false : allowSafeCommands && !promptConstraints.disableSafeCommands,
-      allow_web_search: allowWebSearch && !promptConstraints.disableWebSearch,
-      allow_ceo_live: allowCeoLive,
-      use_memory: useMemory,
+      allow_web_search: isBusinessPhase2A ? false : allowWebSearch && !promptConstraints.disableWebSearch,
+      allow_ceo_live: isBusinessPhase2A ? false : allowCeoLive,
+      use_memory: isBusinessPhase2A ? false : useMemory,
       use_real_coding_agent: isBusinessBuilder ? false : useRealCodingAgent,
       allow_live_coding_model_call: isBusinessBuilder ? false : allowLiveCodingModelCall,
       real_coding_dry_run: isBusinessBuilder ? false : realCodingDryRun,
@@ -90,9 +96,12 @@ export default function Orchestrator({ onWorkflowCompleted, onOpenProject, onOpe
       real_coding_max_files: isBusinessBuilder ? null : Number(realCodingMaxFiles) || null,
       real_coding_max_repair_attempts: isBusinessBuilder ? 0 : allowRepairAttempt ? 1 : 0,
       max_cost_usd: Number(maxCostUsd) || 0.25,
-      business_intake: isBusinessBuilder ? businessIntake : null,
+      business_intake: isBusinessBuilder && !isBusinessPhase2A ? businessIntake : null,
+      business_phase: isBusinessBuilder ? businessPhase : "phase_1",
+      source_run_id: isBusinessPhase2A ? sourceRunId.trim() || null : null,
+      confirm_local_prototype: isBusinessPhase2A ? confirmLocalPrototype : false,
     }),
-    [allowCeoLive, allowFileWrites, allowLiveCodingModelCall, allowRepairAttempt, allowSafeCommands, allowWebSearch, businessCommand, businessIntake, command, effectiveRunType, isBusinessBuilder, maxCostUsd, mode, projectId, promptConstraints.disableFileWrites, promptConstraints.disableSafeCommands, promptConstraints.disableWebSearch, realCodingDryRun, realCodingMaxFiles, realCodingModel, useMemory, useRealCodingAgent],
+    [allowCeoLive, allowFileWrites, allowLiveCodingModelCall, allowRepairAttempt, allowSafeCommands, allowWebSearch, businessCommand, businessIntake, businessPhase, command, confirmLocalPrototype, effectiveRunType, isBusinessBuilder, isBusinessPhase2A, maxCostUsd, mode, projectId, promptConstraints.disableFileWrites, promptConstraints.disableSafeCommands, promptConstraints.disableWebSearch, realCodingDryRun, realCodingMaxFiles, realCodingModel, sourceRunId, useMemory, useRealCodingAgent],
   );
 
   useEffect(() => {
@@ -121,16 +130,18 @@ export default function Orchestrator({ onWorkflowCompleted, onOpenProject, onOpe
     }
     if (runType === "business_builder") {
       setMode("mock");
-      setAllowFileWrites(false);
+      setAllowFileWrites(businessPhase === "phase_2a_local_prototype");
       setAllowSafeCommands(false);
+      setAllowWebSearch(false);
       setAllowCeoLive(false);
+      setUseMemory(businessPhase !== "phase_2a_local_prototype");
       setUseRealCodingAgent(false);
       setAllowLiveCodingModelCall(false);
       setRealCodingDryRun(false);
       setAllowRepairAttempt(false);
       setMaxCostUsd("0.05");
     }
-  }, [runType]);
+  }, [runType, businessPhase]);
 
   useEffect(() => {
     if (!promptConstraints.forceWebsiteUpdate) return;
@@ -151,7 +162,7 @@ export default function Orchestrator({ onWorkflowCompleted, onOpenProject, onOpe
   }, [promptConstraints.forceResearchOnly]);
 
   const executeRun = async (runPayload: CreateRunPayload) => {
-    if (running || !runPayload.command || (runPayload.run_type === "business_builder" && !runPayload.business_intake?.idea.trim())) return;
+    if (running || !runPayload.command || !canRunBusinessBuilder(runPayload)) return;
     setRunning(true);
     setError(null);
     setResult(null);
@@ -284,7 +295,17 @@ export default function Orchestrator({ onWorkflowCompleted, onOpenProject, onOpe
             </div>
 
             {isBusinessBuilder && (
-              <BusinessIntakeSection intake={businessIntake} onChange={setBusinessIntake} disabled={running} />
+              <BusinessBuilderPhaseSection
+                phase={businessPhase ?? "phase_1"}
+                onPhaseChange={setBusinessPhase}
+                intake={businessIntake}
+                onIntakeChange={setBusinessIntake}
+                sourceRunId={sourceRunId}
+                onSourceRunIdChange={setSourceRunId}
+                confirmed={confirmLocalPrototype}
+                onConfirmedChange={setConfirmLocalPrototype}
+                disabled={running}
+              />
             )}
 
             <div className="grid grid-cols-1 lg:grid-cols-6 gap-3">
@@ -403,7 +424,7 @@ export default function Orchestrator({ onWorkflowCompleted, onOpenProject, onOpe
             <button
               id="run-orchestration-btn"
               onClick={handleRun}
-              disabled={running || !payload.command || (isBusinessBuilder && !businessIntake.idea.trim())}
+              disabled={running || !payload.command || !canRunBusinessBuilder(payload)}
               className="bg-[#20c997] hover:bg-[#1db184] disabled:bg-[#2c2e33] disabled:text-[#909296] text-[#141517] text-sm font-bold px-4 py-3 rounded flex items-center justify-center gap-2 transition-all outline-none cursor-pointer w-full sm:w-auto"
             >
               <PlayCircle className={`w-4 h-4 ${running ? "animate-spin" : ""}`} />
@@ -477,10 +498,59 @@ function ToggleControl({ label, checked, onChange, disabled, warning }: { label:
   );
 }
 
+function BusinessBuilderPhaseSection({
+  phase,
+  onPhaseChange,
+  intake,
+  onIntakeChange,
+  sourceRunId,
+  onSourceRunIdChange,
+  confirmed,
+  onConfirmedChange,
+  disabled,
+}: {
+  phase: NonNullable<CreateRunPayload["business_phase"]>;
+  onPhaseChange: (value: CreateRunPayload["business_phase"]) => void;
+  intake: BusinessIntake;
+  onIntakeChange: (value: BusinessIntake) => void;
+  sourceRunId: string;
+  onSourceRunIdChange: (value: string) => void;
+  confirmed: boolean;
+  onConfirmedChange: (value: boolean) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div className="bg-[#141517] border border-[#2c2e33] rounded-lg p-4 space-y-4">
+      <Field label="Business Builder Phase" helper={phase === "phase_1" ? "Phase 1 creates strategy artifacts only." : "Phase 2A creates a deterministic local-only prototype from a completed Phase 1.1 run."}>
+        <select value={phase} onChange={(event) => onPhaseChange(event.target.value as CreateRunPayload["business_phase"])} disabled={disabled} className="control-input">
+          <option value="phase_1">Phase 1 planning</option>
+          <option value="phase_2a_local_prototype">Phase 2A local prototype</option>
+        </select>
+      </Field>
+      {phase === "phase_2a_local_prototype" ? (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+          <Field label="Source Phase 1.1 Run ID" helper="Must be a completed Business Builder Phase 1.1 run in the same project.">
+            <input value={sourceRunId} onChange={(event) => onSourceRunIdChange(event.target.value)} disabled={disabled} className="control-input" />
+          </Field>
+          <ToggleControl
+            label="Confirm local prototype"
+            checked={confirmed}
+            onChange={onConfirmedChange}
+            disabled={disabled}
+            warning="Creates local files only. No launch, external calls, orders, payments, or real personal data."
+          />
+        </div>
+      ) : (
+        <BusinessIntakeSection intake={intake} onChange={onIntakeChange} disabled={disabled} />
+      )}
+    </div>
+  );
+}
+
 function BusinessIntakeSection({ intake, onChange, disabled }: { intake: BusinessIntake; onChange: (value: BusinessIntake) => void; disabled?: boolean }) {
   const update = (key: keyof BusinessIntake, value: string) => onChange({ ...intake, [key]: value });
   return (
-    <div className="bg-[#141517] border border-[#2c2e33] rounded-lg p-4 space-y-4">
+    <div className="space-y-4">
       <InfoCard>
         Phase 1 creates a planning package only. It does not build or deploy a website, app, brand asset, ad campaign, or external action.
       </InfoCard>
@@ -499,6 +569,14 @@ function BusinessIntakeSection({ intake, onChange, disabled }: { intake: Busines
       </div>
     </div>
   );
+}
+
+function canRunBusinessBuilder(payload: CreateRunPayload): boolean {
+  if (payload.run_type !== "business_builder") return true;
+  if (payload.business_phase === "phase_2a_local_prototype") {
+    return Boolean(payload.source_run_id?.trim()) && payload.confirm_local_prototype === true;
+  }
+  return Boolean(payload.business_intake?.idea.trim());
 }
 
 function IntakeField({ label, value, onChange, disabled, textarea }: { label: string; value: string; onChange: (value: string) => void; disabled?: boolean; textarea?: boolean }) {

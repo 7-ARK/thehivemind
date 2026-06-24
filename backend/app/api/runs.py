@@ -50,6 +50,9 @@ async def start_run(payload: RunCreate) -> RunStartResponse:
         real_coding_max_files=payload.real_coding_max_files,
         real_coding_max_repair_attempts=payload.real_coding_max_repair_attempts,
         business_intake=payload.business_intake,
+        business_phase=payload.business_phase,
+        source_run_id=payload.source_run_id,
+        confirm_local_prototype=payload.confirm_local_prototype,
         max_cost_usd=payload.max_cost_usd,
     )
     if record.mode == "live":
@@ -82,6 +85,10 @@ def _apply_prompt_safety_overrides(payload: RunCreate) -> RunCreate:
 def _normalize_business_builder_payload(payload: RunCreate) -> RunCreate:
     if payload.run_type != "business_builder":
         return payload
+    if payload.business_phase == "phase_2a_local_prototype":
+        _validate_business_builder_phase2a_payload(payload)
+        command = payload.command.strip() or f"Business Builder Phase 2A local prototype from {payload.source_run_id}"
+        return payload.model_copy(update={"command": command})
     intake = payload.business_intake
     if intake is None or not intake.idea.strip():
         raise HTTPException(status_code=422, detail="business_builder requires business_intake.idea.")
@@ -99,6 +106,31 @@ def _normalize_business_builder_payload(payload: RunCreate) -> RunCreate:
             "real_coding_max_repair_attempts": 0,
         }
     )
+
+
+def _validate_business_builder_phase2a_payload(payload: RunCreate) -> None:
+    if payload.mode != "mock":
+        raise HTTPException(status_code=422, detail="Business Builder Phase 2A requires mode=mock.")
+    if not payload.source_run_id or not payload.source_run_id.strip():
+        raise HTTPException(status_code=422, detail="Business Builder Phase 2A requires source_run_id.")
+    if not payload.confirm_local_prototype:
+        raise HTTPException(status_code=422, detail="Business Builder Phase 2A requires confirm_local_prototype=true.")
+    checks = {
+        "allow_file_writes must be true": payload.allow_file_writes is True,
+        "allow_safe_commands must be false": payload.allow_safe_commands is False,
+        "allow_web_search must be false": payload.allow_web_search is False,
+        "allow_ceo_live must be false": payload.allow_ceo_live is False,
+        "use_memory must be false": payload.use_memory is False,
+        "use_real_coding_agent must be false": payload.use_real_coding_agent is False,
+        "allow_live_coding_model_call must be false": payload.allow_live_coding_model_call is False,
+        "real_coding_dry_run must be false": payload.real_coding_dry_run is False,
+        "real_coding_model must be null": payload.real_coding_model is None,
+        "real_coding_max_files must be null": payload.real_coding_max_files is None,
+        "real_coding_max_repair_attempts must be 0": payload.real_coding_max_repair_attempts == 0,
+    }
+    failed = [message for message, ok in checks.items() if not ok]
+    if failed:
+        raise HTTPException(status_code=422, detail=f"Business Builder Phase 2A request invalid: {'; '.join(failed)}.")
 
 
 @router.get("/{run_id}", response_model=RunRecord)

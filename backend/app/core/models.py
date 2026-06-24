@@ -45,6 +45,9 @@ class RunCreate(BaseModel):
     max_cost_usd: float = Field(default=0.25, gt=0, le=5)
     approval_ids: list[str] = Field(default_factory=list)
     business_intake: BusinessIntake | None = None
+    business_phase: Literal["phase_1", "phase_2a_local_prototype"] = "phase_1"
+    source_run_id: str | None = Field(default=None, max_length=120)
+    confirm_local_prototype: bool = False
 
 
 class AgentInfo(BaseModel):

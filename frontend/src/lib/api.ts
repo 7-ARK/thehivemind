@@ -499,6 +499,10 @@ export async function getProjectChanges(projectId: string): Promise<{ project_id
   return request(`/api/projects/${encodeURIComponent(projectId)}/changes`);
 }
 
+export function projectPrototypePreviewUrl(projectId: string, runId: string): string {
+  return `${API_BASE_URL}/api/projects/${encodeURIComponent(projectId)}/prototypes/${encodeURIComponent(runId)}/preview`;
+}
+
 export async function getRunWorkspaceFiles(runId: string): Promise<{ run_id: string; files: Array<Record<string, unknown>> }> {
   return request(`/api/runs/${encodeURIComponent(runId)}/workspace/files`);
 }
