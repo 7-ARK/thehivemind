@@ -236,11 +236,11 @@ def _required_model_capabilities(agent_id: str, request: AgentPlanRequest) -> li
 def _business_planner_model_selection(request: AgentPlanRequest, settings: Settings) -> dict:
     if request.mode == "live":
         return {
-            "selected_model_id": "gpt-5.5:flex",
+            "selected_model_id": "gpt-5.5",
             "provider": "openai",
             "provider_model_name": settings.ceo_model,
-            "service_tier": settings.ceo_service_tier,
-            "reason": "Business Builder live planning uses the registered GPT-5.5 Flex CEO-grade strategic planner for one bounded Phase 1 planning call.",
+            "service_tier": None,
+            "reason": "Business Builder live planning uses plain GPT-5.5 for one bounded Phase 1 planning call.",
             "confidence": 0.98,
             "estimated_risk": "high",
             "requires_approval": True,
@@ -250,9 +250,9 @@ def _business_planner_model_selection(request: AgentPlanRequest, settings: Setti
     return {
         "selected_model_id": "mock_business_planner",
         "provider": "mock",
-        "live_strategic_planner_target": "gpt-5.5:flex",
+        "live_strategic_planner_target": "gpt-5.5",
         "provider_model_name": settings.ceo_model,
-        "service_tier": settings.ceo_service_tier,
+        "service_tier": None,
         "reason": "Business Builder mock planning uses deterministic local output. No Qwen, Kimi, GPT-5.5, OpenAI, or OpenRouter call is made.",
         "confidence": 1.0,
         "estimated_risk": "low",

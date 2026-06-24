@@ -422,7 +422,7 @@ class UsageAnalytics:
             metadata = __import__("json").loads(raw)
         except Exception:
             return {}
-        allowed = {"effective_provider", "usage_source", "mock", "response_id"}
+        allowed = {"effective_provider", "usage_source", "mock", "response_id", "provider_error"}
         return {key: value for key, value in metadata.items() if key in allowed}
 
     def _short_error(self, row) -> str | None:

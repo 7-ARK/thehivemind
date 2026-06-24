@@ -170,6 +170,14 @@ function RunBusinessBuilderPanel({ run }: { run: RunResult }) {
   const deferred = Array.isArray(detail.deferred_to_phase_2) ? detail.deferred_to_phase_2.map(String) : [];
   const search = detail.search_status ?? {};
   const memory = detail.memory_status ?? {};
+  const localBuild = detail.local_build_readiness ?? {};
+  const publicLaunch = detail.public_launch_readiness ?? {};
+  const localBlockers = Array.isArray(localBuild.local_build_blockers)
+    ? localBuild.local_build_blockers.map(String).slice(0, 5)
+    : Array.isArray(localBuild.blockers)
+      ? localBuild.blockers.map(String).slice(0, 5)
+      : [];
+  const publicBlockers = Array.isArray(publicLaunch.blockers) ? publicLaunch.blockers.map(String).slice(0, 5) : [];
   return (
     <section className="bg-[#1a1b1e] border border-[#2c2e33] rounded-lg p-4 space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -181,20 +189,28 @@ function RunBusinessBuilderPanel({ run }: { run: RunResult }) {
       </div>
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <Metric label="Phase" value={String(detail.phase ?? 1)} />
+        <Metric label="Planning Version" value={String(detail.planning_version ?? "Not available for this earlier run")} />
         <Metric label="Status" value={String(detail.status ?? "planning_complete")} />
         <Metric label="Build Status" value={String(detail.build_status ?? "Not built")} />
         <Metric label="Build Started" value={String(Boolean(detail.build_started))} />
         <Metric label="Build Allowed" value={String(Boolean(detail.build_allowed))} />
+        <Metric label="Primary Segment" value={String(detail.primary_launch_segment ?? "Not available for this earlier run")} />
+        <Metric label="Local Build" value={String(localBuild.status ?? "Not available")} />
+        <Metric label="Local Prototype" value={String(localBuild.prototype_mode ?? "Not available")} />
+        <Metric label="Personal Data" value={String(localBuild.personal_data ?? "Not available")} />
+        <Metric label="Public Launch" value={String(publicLaunch.status ?? "Not available")} />
         <Metric label="Execution Mode" value={String(detail.execution_mode ?? "unknown")} />
         <Metric label="Actual Provider" value={String(detail.actual_provider ?? "unknown")} />
         <Metric label="Actual Model" value={String(detail.actual_model ?? "none")} />
-        <Metric label="Live Target" value={String(detail.live_strategic_planner_target ?? "gpt-5.5:flex")} />
+        <Metric label="Live Target" value={String(detail.live_strategic_planner_target ?? "gpt-5.5")} />
         <Metric label="Live Call" value={String(Boolean(detail.live_call_made))} />
         <Metric label="Call Status" value={String(detail.provider_call_status ?? "unknown")} />
         <Metric label="Search Used" value={String(Boolean(search.used))} />
         <Metric label="Search Sources" value={String(search.source_count ?? 0)} />
         <Metric label="Memory Retrieved" value={String(memory.retrieved_count ?? 0)} />
       </div>
+      <MiniList title="Top Local Build Blockers" items={localBlockers} empty="No local build blockers listed." />
+      <MiniList title="Top Public Launch Blockers" items={publicBlockers} empty="No public launch blockers listed." />
       <MiniList title="Approvals Needed" items={approvals} empty="No approvals listed." />
       <MiniList title="Blocked External Actions" items={blocked} empty="No blocked external actions listed." />
       <MiniList title="Deferred To Phase 2" items={deferred} empty="Nothing deferred." />

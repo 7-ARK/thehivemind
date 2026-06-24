@@ -318,7 +318,7 @@ export default function App() {
                   {
                     name: "CEO Agent",
                     desc: "Plans controlled runs and delegates work. Live GPT-5.5 remains blocked unless explicitly allowed.",
-                    model: "GPT-5.5 Flex",
+                    model: "GPT-5.5",
                     provider: "OpenAI",
                     limits: "Weighted high priority - max 128k input context limit",
                     role: "Master Planner Unit",

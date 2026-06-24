@@ -93,7 +93,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     let detail = `API request failed: ${response.status}`;
     try {
       const payload = await response.json();
-      detail = payload.detail ?? detail;
+      detail = formatBackendErrorDetail(payload.detail ?? detail);
     } catch {
       // Keep the status-based detail.
     }
@@ -101,6 +101,21 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   }
 
   return response.json() as Promise<T>;
+}
+
+function formatBackendErrorDetail(detail: unknown): string {
+  if (typeof detail === "string") return detail;
+  if (detail && typeof detail === "object") {
+    const record = detail as Record<string, unknown>;
+    if (typeof record.message === "string") return record.message;
+    if (typeof record.error === "string") return record.error;
+    try {
+      return JSON.stringify(detail);
+    } catch {
+      return "Backend request failed with an unreadable error detail.";
+    }
+  }
+  return String(detail);
 }
 
 export async function getHealth(): Promise<{ status: string; environment: string; mock_mode: boolean }> {
@@ -646,7 +661,7 @@ function labelProvider(provider: string | null | undefined): string {
 function labelModel(model: string | null | undefined): string {
   const value = model ?? "unassigned";
   const labels: Record<string, string> = {
-    "gpt-5.5": "GPT-5.5 Flex",
+    "gpt-5.5": "GPT-5.5",
     "gpt-5.4-nano": "GPT-5.4 Nano",
     "gemini-3.5-flash": "Gemini 3.5 Flash",
     "gemini-3.1-flash-lite": "Gemini 3.1 Flash-Lite",

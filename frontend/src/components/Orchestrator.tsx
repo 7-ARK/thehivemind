@@ -372,7 +372,7 @@ export default function Orchestrator({ onWorkflowCompleted, onOpenProject, onOpe
             {mode === "live" ? (
               <WarningCard>
                 {isBusinessBuilder
-                  ? "Live Business Planner uses GPT-5.5 Flex for one bounded strategic planning call. This creates planning artifacts only. It does not build, deploy, contact anyone, or start Phase 2."
+                  ? "Live Business Planner uses GPT-5.5 for one bounded strategic planning call. This creates planning artifacts only. It does not build, deploy, contact anyone, or start Phase 2."
                   : `Live mode can use real API credits. GPT-5.5 remains blocked unless CEO live is enabled. Current cost limit: $${payload.max_cost_usd.toFixed(2)}.`}
               </WarningCard>
             ) : (
@@ -738,11 +738,30 @@ ${next}`;
 
 function normalizeError(message?: string): string {
   if (!message) return "Unknown backend error.";
+  const backendDetail = parseBackendErrorDetail(message);
+  if (backendDetail) return normalizeError(backendDetail);
   if (message.includes("Live provider calls are disabled")) return "Live calls are disabled in the backend. Keep mock mode on or enable ALLOW_LIVE_CALLS=true.";
   if (message.includes("API key is not configured")) return "The selected live provider is missing an API key.";
+  if (message.includes("Provider call failed for")) return message;
   if (message.includes("max_cost_usd") || message.includes("cost")) return message;
   if (message.includes("allow_file_writes")) return "This run type needs file writes enabled.";
   return message;
+}
+
+function parseBackendErrorDetail(message: string): string | null {
+  try {
+    const parsed = JSON.parse(message);
+    const detail = parsed?.detail;
+    if (typeof detail === "string" && detail !== message) return detail;
+    if (detail && typeof detail === "object") {
+      if (typeof detail.message === "string") return detail.message;
+      if (typeof detail.error === "string") return detail.error;
+      return JSON.stringify(detail);
+    }
+  } catch {
+    return null;
+  }
+  return null;
 }
 
 function appliedPromptConstraints(command: string): string[] {

@@ -535,7 +535,7 @@ class ExecutionEngine:
         )
         selected_models = self._selection_by_agent(agent_plan)
         planner_selection = selected_models.get("business_planner_agent") or {}
-        planner_model = str(planner_selection.get("selected_model_id") or ("gpt-5.5:flex" if mode == "live" else "mock_business_planner"))
+        planner_model = str(planner_selection.get("selected_model_id") or ("gpt-5.5" if mode == "live" else "mock_business_planner"))
         qa_model = _selected_model_id(selected_models, "qa_agent", self.settings.cheap_worker_model)
         artifact_records = []
         agent_plan_artifact = self.artifacts.save_text(
@@ -618,10 +618,11 @@ class ExecutionEngine:
                 output_text=planning_bundle["final_planning_report.md"],
                 action_summary="Created Business Builder Phase 1 planning package with deterministic mock planner",
                 artifact_id=agent_plan_artifact.id,
-                estimated_model="gpt-5.5:flex",
+                estimated_model="gpt-5.5",
             )
 
         planning_artifact_names = [
+            "strategic_decisions.json",
             "business_brief.json",
             "business_brief.md",
             "business_strategy.md",
@@ -792,14 +793,19 @@ class ExecutionEngine:
                 "search_unavailable": agent_plan.search_unavailable,
                 "business_builder": {
                     "phase": 1,
+                    "planning_version": planning_bundle["business_brief.json"].get("planning_version", "1.1"),
                     "status": "planning_complete",
                     "build_status": "Not built",
                     "build_started": False,
                     "build_allowed": False,
+                    "primary_launch_segment": planning_bundle["business_brief.json"].get("primary_launch_segment"),
+                    "secondary_segments": planning_bundle["business_brief.json"].get("secondary_segments", []),
+                    "local_build_readiness": planning_bundle["business_brief.json"].get("local_build_readiness", {}),
+                    "public_launch_readiness": planning_bundle["business_brief.json"].get("public_launch_readiness", {}),
                     "execution_mode": "live_strategic_planner" if mode == "live" else "deterministic_mock_planner",
                     "actual_provider": planner_event.provider,
                     "actual_model": planner_event.model_used,
-                    "live_strategic_planner_target": "gpt-5.5:flex",
+                    "live_strategic_planner_target": "gpt-5.5",
                     "live_call_made": mode == "live",
                     "provider_call_status": "success" if mode == "live" else "not_called_mock",
                     "search_status": planning_bundle["business_brief.json"]["research_status"],
@@ -2122,9 +2128,9 @@ class ExecutionEngine:
             {
                 "role": "system",
                 "content": (
-                    "You are TheHiveMind Business Planner for Phase 1 only. Return strict JSON with exactly the required "
-                    "Business Builder Phase 1 artifact keys. Do not write code, do not build, do not deploy, and do not "
-                    "perform external actions."
+                    "You are TheHiveMind Business Planner for Phase 1 only. Return only compact JSON matching the schema. "
+                    "Give bounded strategic decisions for the backend to expand into artifacts. Do not write code, do not "
+                    "build, do not deploy, do not claim current market facts unless supplied, and do not perform external actions."
                 ),
             },
             {
@@ -2135,17 +2141,18 @@ class ExecutionEngine:
                         "business_intake": intake,
                         "research_status": research_status,
                         "memory_status": {"retrieved_count": memory_retrieved_count},
-                        "required_artifact_names": deterministic_bundle["business_builder_state.json"]["artifact_names"],
+                        "backend_will_generate_artifacts": deterministic_bundle["business_builder_state.json"]["artifact_names"],
                         "phase_1_exclusions": deterministic_bundle["business_brief.json"]["deferred_to_phase_2"],
                         "safety_boundary": "Planning only. build_started=false and build_allowed=false must remain false.",
+                        "required_output": "Return concise planning decisions only; no markdown, no prose wrapper, no full artifact package.",
                     },
                     indent=2,
                 ),
             },
         ]
-        max_output_tokens = min(500, self.settings.max_output_tokens_per_call)
+        max_output_tokens = self.settings.business_builder_live_max_output_tokens
         input_tokens = estimate_messages_tokens(messages)
-        preflight = estimate_cost(self.settings.ceo_model, input_tokens, max_output_tokens, service_tier=self.settings.ceo_service_tier)
+        preflight = estimate_cost(self.settings.ceo_model, input_tokens, max_output_tokens, service_tier=None)
         if preflight.estimated_cost_usd > max_cost:
             raise HTTPException(status_code=400, detail=f"Estimated Business Builder planner call ${preflight.estimated_cost_usd:.6f} exceeds request max_cost_usd=${max_cost:.2f}.")
         response, _usage_id = await generate_with_provider(
@@ -2155,27 +2162,36 @@ class ExecutionEngine:
             messages=messages,
             max_output_tokens=max_output_tokens,
             temperature=0.2,
-            service_tier=self.settings.ceo_service_tier,
+            service_tier=None,
             run_id=run_id,
             task_id=f"{run_id}:business_builder_live_planning",
             agent_name="Business Planner",
             agent_role="Business Builder Phase 1 strategic planner",
             project_id=project_id,
             request_type="business_builder_live_planning",
-            response_format={"type": "json_object"},
+            response_format=self._business_builder_decision_response_format(),
             settings=self.settings,
             usage_store=self.usage,
         )
-        bundle = self._parse_live_business_builder_bundle(response.text)
+        decision = self._parse_live_business_builder_decision(response.text)
+        bundle = self._business_builder_bundle(
+            command=command,
+            intake=intake,
+            allow_web_search=bool(research_status.get("enabled")),
+            memory_retrieved_count=memory_retrieved_count,
+            research_status=research_status,
+            strategic_decisions=decision,
+            live_planner={"used": True, "model": self.settings.ceo_model, "output_mode": "strategic_decisions_v1_1"},
+        )
         event = RunEvent(
             timestamp=datetime.now(UTC),
             run_id=run_id,
             agent_name="Business Planner",
             agent_role="Business Builder Phase 1 strategic planner",
             status="completed",
-            action_summary="Created Business Builder Phase 1 planning package with GPT-5.5 Flex strategic planner",
+            action_summary="Created Business Builder Phase 1 planning package with GPT-5.5 strategic planner",
             input_summary="Compact structured business intake, constraints, search/memory status, artifact contract, and Phase 1 exclusions.",
-            output_summary="Validated structured Business Builder Phase 1 planning bundle.",
+            output_summary="Validated compact strategy decisions and expanded them into Phase 1 artifacts.",
             model_used=response.model,
             provider=response.provider,
             estimated_input_tokens=response.input_tokens,
@@ -2187,33 +2203,384 @@ class ExecutionEngine:
         )
         return bundle, event
 
-    def _parse_live_business_builder_bundle(self, text: str) -> dict[str, Any]:
-        try:
-            payload = json.loads(text)
-        except json.JSONDecodeError as exc:
-            raise HTTPException(status_code=502, detail=f"Business Builder live planner returned malformed JSON: {exc.msg}.") from exc
-        required = {
-            "business_brief.json",
-            "business_brief.md",
-            "business_strategy.md",
-            "target_customer.md",
-            "offer_and_pricing.md",
-            "brand_direction.md",
-            "website_app_requirements.md",
-            "mvp_scope.md",
-            "build_handoff.json",
-            "business_builder_state.json",
-            "final_planning_report.md",
+    def _business_builder_decision_response_format(self) -> dict[str, Any]:
+        string_array = {"type": "array", "items": {"type": "string"}}
+        product_status = {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["label", "status", "notes"],
+            "properties": {
+                "label": {"type": "string"},
+                "status": {"type": "string", "enum": ["confirmed", "planned", "exploratory", "unavailable until validated"]},
+                "notes": {"type": "string"},
+            },
         }
-        missing = sorted(name for name in required if name not in payload)
-        if missing:
-            raise HTTPException(status_code=502, detail=f"Business Builder live planner response missing required artifacts: {', '.join(missing)}.")
-        for name in ("business_brief.json", "build_handoff.json", "business_builder_state.json"):
-            if not isinstance(payload.get(name), dict):
-                raise HTTPException(status_code=502, detail=f"Business Builder live planner artifact {name} must be a JSON object.")
-        state = payload["business_builder_state.json"]
-        if state.get("phase") != 1 or state.get("build_started") is not False or state.get("build_allowed") is not False:
-            raise HTTPException(status_code=502, detail="Business Builder live planner violated Phase 1 build boundary.")
+        section_contract = {
+            "type": "object",
+            "additionalProperties": False,
+            "required": [
+                "section_id",
+                "section_name",
+                "purpose",
+                "content_order",
+                "required_copy_topics",
+                "safe_claims_allowed",
+                "claims_or_content_forbidden",
+                "primary_cta",
+                "secondary_cta",
+                "status_if_information_is_unknown",
+            ],
+            "properties": {
+                "section_id": {"type": "string"},
+                "section_name": {"type": "string"},
+                "purpose": {"type": "string"},
+                "content_order": string_array,
+                "required_copy_topics": string_array,
+                "safe_claims_allowed": string_array,
+                "claims_or_content_forbidden": string_array,
+                "primary_cta": {"type": "string"},
+                "secondary_cta": {"type": "string"},
+                "status_if_information_is_unknown": {"type": "string"},
+            },
+        }
+        readiness = {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["status", "ready_when", "blockers", "allowed_scope", "exclusions", "approved_placeholder_policy"],
+            "properties": {
+                "status": {"type": "string"},
+                "ready_when": string_array,
+                "blockers": string_array,
+                "allowed_scope": string_array,
+                "exclusions": string_array,
+                "approved_placeholder_policy": {"type": "string"},
+            },
+        }
+        public_readiness = {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["status", "blockers", "evidence_required", "operational_requirements", "external_action_approvals_required"],
+            "properties": {
+                "status": {"type": "string"},
+                "blockers": string_array,
+                "evidence_required": string_array,
+                "operational_requirements": string_array,
+                "external_action_approvals_required": string_array,
+            },
+        }
+        schema = {
+            "type": "object",
+            "additionalProperties": False,
+            "required": [
+                "planning_version",
+                "customer_wedge",
+                "positioning",
+                "validation_plan",
+                "offer_pricing",
+                "brand",
+                "website_spec",
+                "inquiry_flow",
+                "readiness",
+            ],
+            "properties": {
+                "planning_version": {"type": "string"},
+                "customer_wedge": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["primary_launch_segment", "secondary_segments", "why_primary_segment_first", "primary_use_case", "main_customer_job", "main_objections", "customer_validation_needed"],
+                    "properties": {
+                        "primary_launch_segment": {"type": "string"},
+                        "secondary_segments": string_array,
+                        "why_primary_segment_first": {"type": "string"},
+                        "primary_use_case": {"type": "string"},
+                        "main_customer_job": {"type": "string"},
+                        "main_objections": string_array,
+                        "customer_validation_needed": string_array,
+                    },
+                },
+                "positioning": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["positioning_statement", "safe_customer_promise", "differentiation_hypotheses", "what_the_brand_is_not", "safe_message_pillars", "unsupported_claims_to_avoid"],
+                    "properties": {
+                        "positioning_statement": {"type": "string"},
+                        "safe_customer_promise": {"type": "string"},
+                        "differentiation_hypotheses": string_array,
+                        "what_the_brand_is_not": string_array,
+                        "safe_message_pillars": string_array,
+                        "unsupported_claims_to_avoid": string_array,
+                    },
+                },
+                "validation_plan": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["validation_goal", "highest_risk_assumptions", "interview_or_feedback_target", "recommended_validation_questions", "positive_signals", "negative_signals", "decision_rules", "what_to_change_if_validation_is_weak"],
+                    "properties": {
+                        "validation_goal": {"type": "string"},
+                        "highest_risk_assumptions": string_array,
+                        "interview_or_feedback_target": {"type": "string"},
+                        "recommended_validation_questions": string_array,
+                        "positive_signals": string_array,
+                        "negative_signals": string_array,
+                        "decision_rules": string_array,
+                        "what_to_change_if_validation_is_weak": string_array,
+                    },
+                },
+                "offer_pricing": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["anchor_offer", "exploratory_variants", "product_status_labels", "customer_value_hypotheses", "pricing_inputs_required", "pricing_validation_questions", "trial_offer_framework", "future_repeat_purchase_framework", "explicitly_unknown"],
+                    "properties": {
+                        "anchor_offer": {"type": "string"},
+                        "exploratory_variants": string_array,
+                        "product_status_labels": {"type": "array", "items": product_status},
+                        "customer_value_hypotheses": string_array,
+                        "pricing_inputs_required": string_array,
+                        "pricing_validation_questions": string_array,
+                        "trial_offer_framework": {"type": "string"},
+                        "future_repeat_purchase_framework": {"type": "string"},
+                        "explicitly_unknown": string_array,
+                    },
+                },
+                "brand": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["brand_principles", "tone_of_voice", "say_examples", "avoid_examples", "visual_hierarchy", "photography_or_illustration_direction", "trust_cues_allowed", "trust_cues_not_allowed", "design_anti_patterns"],
+                    "properties": {
+                        "brand_principles": string_array,
+                        "tone_of_voice": {"type": "string"},
+                        "say_examples": string_array,
+                        "avoid_examples": string_array,
+                        "visual_hierarchy": string_array,
+                        "photography_or_illustration_direction": {"type": "string"},
+                        "trust_cues_allowed": string_array,
+                        "trust_cues_not_allowed": string_array,
+                        "design_anti_patterns": string_array,
+                    },
+                },
+                "website_spec": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["homepage_objective", "section_order", "section_contracts", "placeholder_policy", "safe_availability_wording", "cta_wording_direction", "faq_topics", "system_must_never_invent"],
+                    "properties": {
+                        "homepage_objective": {"type": "string"},
+                        "section_order": string_array,
+                        "section_contracts": {"type": "array", "items": section_contract},
+                        "placeholder_policy": {"type": "string"},
+                        "safe_availability_wording": {"type": "string"},
+                        "cta_wording_direction": {"type": "string"},
+                        "faq_topics": string_array,
+                        "system_must_never_invent": string_array,
+                    },
+                },
+                "inquiry_flow": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["inquiry_purpose", "allowed_inquiry_types", "fields", "required_vs_optional_fields", "local_only_behavior", "storage_behavior", "success_state", "error_state", "privacy_or_data_handling_placeholder", "non_goals"],
+                    "properties": {
+                        "inquiry_purpose": {"type": "string"},
+                        "allowed_inquiry_types": string_array,
+                        "fields": string_array,
+                        "required_vs_optional_fields": string_array,
+                        "local_only_behavior": {"type": "string"},
+                        "storage_behavior": {"type": "string"},
+                        "success_state": {"type": "string"},
+                        "error_state": {"type": "string"},
+                        "privacy_or_data_handling_placeholder": {"type": "string"},
+                        "non_goals": string_array,
+                    },
+                },
+                "readiness": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["local_build_readiness", "public_launch_readiness"],
+                    "properties": {
+                        "local_build_readiness": readiness,
+                        "public_launch_readiness": public_readiness,
+                    },
+                },
+            },
+        }
+        return {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "business_builder_phase1_decisions",
+                "strict": True,
+                "schema": schema,
+            },
+        }
+
+    def _parse_live_business_builder_decision(self, text: str) -> dict[str, Any]:
+        payload = self._parse_json_object(text, label="Business Builder live planner")
+        return self._validate_business_builder_decisions(payload, source="live")
+
+    def _validate_business_builder_decisions(self, payload: dict[str, Any], *, source: str) -> dict[str, Any]:
+        groups = {
+            "customer_wedge": ["primary_launch_segment", "secondary_segments", "why_primary_segment_first", "primary_use_case", "main_customer_job", "main_objections", "customer_validation_needed"],
+            "positioning": ["positioning_statement", "safe_customer_promise", "differentiation_hypotheses", "what_the_brand_is_not", "safe_message_pillars", "unsupported_claims_to_avoid"],
+            "validation_plan": ["validation_goal", "highest_risk_assumptions", "interview_or_feedback_target", "recommended_validation_questions", "positive_signals", "negative_signals", "decision_rules", "what_to_change_if_validation_is_weak"],
+            "offer_pricing": ["anchor_offer", "exploratory_variants", "product_status_labels", "customer_value_hypotheses", "pricing_inputs_required", "pricing_validation_questions", "trial_offer_framework", "future_repeat_purchase_framework", "explicitly_unknown"],
+            "brand": ["brand_principles", "tone_of_voice", "say_examples", "avoid_examples", "visual_hierarchy", "photography_or_illustration_direction", "trust_cues_allowed", "trust_cues_not_allowed", "design_anti_patterns"],
+            "website_spec": ["homepage_objective", "section_order", "section_contracts", "placeholder_policy", "safe_availability_wording", "cta_wording_direction", "faq_topics", "system_must_never_invent"],
+            "inquiry_flow": ["inquiry_purpose", "allowed_inquiry_types", "fields", "required_vs_optional_fields", "local_only_behavior", "storage_behavior", "success_state", "error_state", "privacy_or_data_handling_placeholder", "non_goals"],
+            "readiness": ["local_build_readiness", "public_launch_readiness"],
+        }
+        for group, fields in groups.items():
+            if not isinstance(payload.get(group), dict):
+                raise HTTPException(status_code=502, detail=f"Business Builder {source} strategic decisions missing object: {group}.")
+            missing = [field for field in fields if field not in payload[group]]
+            if missing:
+                raise HTTPException(status_code=502, detail=f"Business Builder {source} strategic decisions missing {group} fields: {', '.join(missing)}.")
+
+        payload["planning_version"] = str(payload.get("planning_version") or "1.1")
+        if payload["planning_version"] != "1.1":
+            payload["planning_version"] = "1.1"
+
+        for group in ("customer_wedge", "positioning", "validation_plan", "offer_pricing", "brand", "website_spec", "inquiry_flow"):
+            payload[group] = _clean_decision_value(payload[group])
+
+        product_status_labels = []
+        allowed_product_statuses = {"confirmed", "planned", "exploratory", "unavailable until validated"}
+        for item in payload["offer_pricing"].get("product_status_labels", []):
+            if not isinstance(item, dict) or not str(item.get("label", "")).strip():
+                continue
+            status = str(item.get("status", "")).strip()
+            if status not in allowed_product_statuses:
+                raise HTTPException(status_code=502, detail=f"Business Builder {source} strategic decisions product status has invalid status: {status or '<blank>'}.")
+            product_status_labels.append(
+                {
+                    "label": str(item.get("label", "")).strip(),
+                    "status": status,
+                    "notes": str(item.get("notes", "")).strip(),
+                }
+            )
+        payload["offer_pricing"]["product_status_labels"] = product_status_labels[:8]
+        if not payload["offer_pricing"]["product_status_labels"]:
+            raise HTTPException(status_code=502, detail=f"Business Builder {source} strategic decisions require at least one product status label.")
+
+        payload["website_spec"]["section_contracts"] = [
+            self._normalize_section_contract(item)
+            for item in payload["website_spec"].get("section_contracts", [])
+            if isinstance(item, dict) and str(item.get("section_id", "")).strip()
+        ]
+        if len(payload["website_spec"]["section_contracts"]) < 5:
+            raise HTTPException(status_code=502, detail=f"Business Builder {source} strategic decisions require at least five website section contracts.")
+
+        if len(payload["validation_plan"].get("recommended_validation_questions", [])) < 5:
+            raise HTTPException(status_code=502, detail=f"Business Builder {source} strategic decisions require at least five validation questions.")
+        if len(payload["validation_plan"].get("positive_signals", [])) < 3 or len(payload["validation_plan"].get("negative_signals", [])) < 3:
+            raise HTTPException(status_code=502, detail=f"Business Builder {source} strategic decisions require at least three positive and three negative validation signals.")
+        if not str(payload["customer_wedge"].get("primary_launch_segment", "")).strip():
+            raise HTTPException(status_code=502, detail=f"Business Builder {source} strategic decisions require one primary launch segment.")
+
+        local = payload["readiness"]["local_build_readiness"]
+        public = payload["readiness"]["public_launch_readiness"]
+        if not isinstance(local, dict) or not isinstance(public, dict):
+            raise HTTPException(status_code=502, detail=f"Business Builder {source} strategic decisions require readiness objects.")
+        local_schema_fields = ("status", "ready_when", "blockers", "allowed_scope", "exclusions", "approved_placeholder_policy")
+        canonical_local_fields = ("status", "policy_source", "ready_when", "local_build_blockers", "open_content_assumptions", "allowed_future_phase_2_scope", "exclusions")
+        if not all(field in local for field in local_schema_fields) and not all(field in local for field in canonical_local_fields):
+            missing_local = [field for field in local_schema_fields if field not in local]
+            raise HTTPException(status_code=502, detail=f"Business Builder {source} strategic decisions missing local readiness fields: {', '.join(missing_local)}.")
+        missing_public = [field for field in ("status", "blockers", "evidence_required", "operational_requirements", "external_action_approvals_required") if field not in public]
+        if missing_public:
+            raise HTTPException(status_code=502, detail=f"Business Builder {source} strategic decisions missing public readiness fields: {', '.join(missing_public)}.")
+        public["status"] = "not_ready"
+        for readiness in (local, public):
+            for key, value in list(readiness.items()):
+                if isinstance(value, list):
+                    readiness[key] = _clean_list(value, limit=12)
+                elif isinstance(value, str):
+                    readiness[key] = value.strip()
+
+        return self._apply_business_builder_system_policy(payload)
+
+    def _apply_business_builder_system_policy(self, payload: dict[str, Any]) -> dict[str, Any]:
+        notes: list[str] = []
+
+        product_status_labels = []
+        removed_capabilities = []
+        for item in payload["offer_pricing"].get("product_status_labels", []):
+            label = str(item.get("label", "")).strip()
+            if _contains_business_builder_capability(label):
+                removed_capabilities.append(label)
+                continue
+            product_status_labels.append(item)
+        if removed_capabilities:
+            notes.append("System policy removed operational capabilities from product status labels.")
+        if not product_status_labels:
+            anchor = str(payload["offer_pricing"].get("anchor_offer", "")).strip()
+            if anchor and not _contains_business_builder_capability(anchor):
+                product_status_labels.append({"label": anchor, "status": "planned", "notes": "Derived from planner anchor offer after system policy removed non-product capability labels."})
+                notes.append("System policy derived the product status from the anchor offer because capability labels were excluded.")
+        payload["offer_pricing"]["product_status_labels"] = product_status_labels
+
+        original_inquiry_text = json.dumps(payload.get("inquiry_flow", {})).lower()
+        if _contains_business_builder_personal_data_field(original_inquiry_text) or _contains_real_inquiry_claim(original_inquiry_text):
+            notes.append("System policy narrowed the local prototype handoff to demo-only behavior.")
+        payload["inquiry_flow"] = _canonical_business_builder_inquiry_flow()
+
+        original_cta = str(payload.get("website_spec", {}).get("cta_wording_direction", ""))
+        if _contains_real_cta(original_cta):
+            notes.append("System policy replaced local prototype CTA wording with demo-only wording.")
+        payload["website_spec"]["cta_wording_direction"] = _canonical_business_builder_cta_wording()
+        for contract in payload["website_spec"].get("section_contracts", []):
+            if _contains_real_cta(f"{contract.get('primary_cta', '')} {contract.get('secondary_cta', '')}"):
+                contract["primary_cta"] = "Explore the prototype"
+                contract["secondary_cta"] = "View availability status"
+
+        original_local = payload["readiness"].get("local_build_readiness", {})
+        original_local_text = json.dumps(original_local).lower()
+        if (
+            str(original_local.get("status", "")).strip() != "conditionally_ready"
+            or _contains_local_blocker_misclassification(original_local.get("blockers", []))
+            or "website build" in original_local_text
+        ):
+            notes.append("System policy replaced planner local readiness with canonical Phase 1 demo-only readiness.")
+        payload["readiness"]["local_build_readiness"] = _canonical_business_builder_local_readiness()
+        payload["readiness"]["public_launch_readiness"]["status"] = "not_ready"
+
+        payload["policy_boundary_notes"] = _dedupe_list(notes)
+        return payload
+
+    def _normalize_section_contract(self, item: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "section_id": str(item.get("section_id", "")).strip(),
+            "section_name": str(item.get("section_name", "")).strip(),
+            "purpose": str(item.get("purpose", "")).strip(),
+            "content_order": _clean_list(item.get("content_order", []), limit=8),
+            "required_copy_topics": _clean_list(item.get("required_copy_topics", []), limit=8),
+            "safe_claims_allowed": _clean_list(item.get("safe_claims_allowed", []), limit=8),
+            "claims_or_content_forbidden": _clean_list(item.get("claims_or_content_forbidden", []), limit=8),
+            "primary_cta": str(item.get("primary_cta", "")).strip(),
+            "secondary_cta": str(item.get("secondary_cta", "")).strip(),
+            "status_if_information_is_unknown": str(item.get("status_if_information_is_unknown", "")).strip(),
+        }
+
+    def _parse_json_object(self, text: str, *, label: str) -> dict[str, Any]:
+        cleaned = (text or "").strip()
+        if not cleaned:
+            raise HTTPException(status_code=502, detail=f"{label} returned empty output instead of JSON.")
+        if cleaned.startswith("```"):
+            cleaned = cleaned.strip("` \n")
+            if cleaned.lower().startswith("json"):
+                cleaned = cleaned[4:].strip()
+        try:
+            payload = json.loads(cleaned)
+        except json.JSONDecodeError as exc:
+            start = cleaned.find("{")
+            end = cleaned.rfind("}")
+            if start >= 0 and end > start:
+                try:
+                    payload = json.loads(cleaned[start : end + 1])
+                except json.JSONDecodeError:
+                    preview = cleaned[:300].replace("\n", " ")
+                    raise HTTPException(status_code=502, detail=f"{label} returned malformed JSON: {exc.msg}. Preview: {preview}") from exc
+            else:
+                preview = cleaned[:300].replace("\n", " ")
+                raise HTTPException(status_code=502, detail=f"{label} returned malformed JSON: {exc.msg}. Preview: {preview}") from exc
+        if not isinstance(payload, dict):
+            raise HTTPException(status_code=502, detail=f"{label} returned JSON that was not an object.")
         return payload
 
     def _business_builder_event(
@@ -2234,7 +2601,8 @@ class ExecutionEngine:
         cost_model = estimated_model or model
         input_tokens = estimate_tokens(input_text)
         output_tokens = estimate_tokens(output_text)
-        cost = estimate_cost(cost_model, input_tokens, output_tokens, service_tier=self.settings.ceo_service_tier if cost_model == self.settings.ceo_model else None).estimated_cost_usd
+        service_tier = None if agent_name == "Business Planner" and cost_model == self.settings.ceo_model else self.settings.ceo_service_tier if cost_model == self.settings.ceo_model else None
+        cost = estimate_cost(cost_model, input_tokens, output_tokens, service_tier=service_tier).estimated_cost_usd
         return RunEvent(
             timestamp=datetime.now(UTC),
             run_id=run_id,
@@ -2254,7 +2622,263 @@ class ExecutionEngine:
             artifact_id=artifact_id or None,
         )
 
-    def _business_builder_bundle(self, *, command: str, intake: dict[str, str], allow_web_search: bool, memory_retrieved_count: int, research_status: dict[str, Any] | None = None) -> dict[str, Any]:
+    def _mock_business_builder_decisions(self, intake: dict[str, str]) -> dict[str, Any]:
+        primary_segment = "working adults who want a simple breakfast or snack option"
+        if intake["target_customer"]:
+            primary_segment = "working adults within the supplied broad audience, selected as an assumption for first validation"
+        secondary_segments = ["urban families", "university students", "health-conscious adults"]
+        forbidden_claims = [
+            "specific protein or nutrition claims",
+            "medical, dietary, weight-loss, or fitness claims",
+            "food-safety, certification, shelf-life, or compliance claims",
+            "Pakistani market prices or demand figures",
+            "supplier, delivery, or availability guarantees",
+            "reviews, testimonials, or competitor comparisons",
+        ]
+        section_contracts = [
+            self._section_contract(
+                "hero",
+                "Hero",
+                "Make the offer understandable without unsupported claims.",
+                ["Business name or offer category", "safe promise", "availability caveat", "manual-interest CTA"],
+                ["plain description", "current planning status", "manual review wording"],
+                forbidden_claims,
+                "Explore the prototype",
+                "Read product details",
+                "Show a clearly labelled placeholder if product facts are not approved.",
+            ),
+            self._section_contract(
+                "everyday_use",
+                "Everyday Use Moments",
+                "Help visitors imagine safe use contexts without health claims.",
+                ["breakfast use", "snack use", "home routine use"],
+                ["use occasions supplied or clearly framed as examples"],
+                forbidden_claims,
+                "See possible uses",
+                "Review assumptions",
+                "Mark examples as validation hypotheses.",
+            ),
+            self._section_contract(
+                "offer_preview",
+                "Offer / Product Preview",
+                "Show confirmed, planned, and exploratory products separately.",
+                ["anchor offer", "exploratory variants", "status labels", "unknowns"],
+                ["plain/flavour status", "unknown pricing and availability"],
+                forbidden_claims,
+                "View offer status",
+                "Ask a question locally",
+                "Use unavailable-until-validated labels.",
+            ),
+            self._section_contract(
+                "trust_transparency",
+                "Trust And Transparency",
+                "Explain what is known, unknown, and approval-gated.",
+                ["facts from owner", "assumptions", "claims avoided", "approval needs"],
+                ["transparent caveats", "manual review boundaries"],
+                forbidden_claims,
+                "Review transparency notes",
+                "Read FAQ",
+                "Say facts are pending owner approval.",
+            ),
+            self._section_contract(
+                "availability_status",
+                "Availability Status",
+                "Avoid pretending the business can currently sell or deliver.",
+                ["current phase", "not accepting orders", "future manually reviewed inquiry"],
+                ["planning-only availability wording"],
+                forbidden_claims,
+                "Check future availability",
+                "Join local interest list",
+                "Use planning-only wording until operations are approved.",
+            ),
+            self._section_contract(
+                "faq",
+                "FAQ",
+                "Answer safe basic questions and route unknowns to placeholders.",
+                ["product status", "pricing status", "claims policy", "future inquiry behavior"],
+                ["known facts", "explicit unknowns"],
+                forbidden_claims,
+                "Read FAQ",
+                "Submit local interest",
+                "Use 'to be confirmed' for unknowns.",
+            ),
+            self._section_contract(
+                "manual_inquiry",
+                "Manual Inquiry",
+                "Define a local-only non-production interest form.",
+                ["purpose", "fields", "local storage", "privacy placeholder", "non-goals"],
+                ["local mock behavior", "no external submission"],
+                forbidden_claims + ["email or WhatsApp submission claims", "payment or order acceptance"],
+                "Save sample interest (demo)",
+                "Clear form",
+                "State that no order is placed, no real personal data is collected, and no external message is sent.",
+            ),
+            self._section_contract(
+                "footer_disclaimer",
+                "Footer / Disclaimer",
+                "Keep boundaries visible across the page.",
+                ["planning status", "claims disclaimer", "external action exclusions"],
+                ["Phase 1 planning-only disclaimer"],
+                forbidden_claims,
+                "Review scope",
+                "Back to top",
+                "Use persistent planning-only disclaimer.",
+            ),
+        ]
+        decisions = {
+            "planning_version": "1.1",
+            "customer_wedge": {
+                "primary_launch_segment": primary_segment,
+                "secondary_segments": secondary_segments,
+                "why_primary_segment_first": "This segment gives a narrow daily-use wedge to validate before treating families, students, and health-focused buyers as equal primary audiences.",
+                "primary_use_case": "A convenient plain yogurt option for routine breakfast or snack moments.",
+                "main_customer_job": "Understand whether the product fits an everyday routine and whether it feels trustworthy enough to try later.",
+                "main_objections": ["price is unknown", "availability is unknown", "claims need evidence", "taste and texture are unproven"],
+                "customer_validation_needed": ["confirm the first customer wedge", "validate use occasion", "validate offer clarity", "validate willingness to make a future inquiry"],
+            },
+            "positioning": {
+                "positioning_statement": "A warm local Greek yogurt concept for simple everyday breakfast and snack routines, intentionally kept small until operations and claims are validated.",
+                "safe_customer_promise": "A thick, simple yogurt option for ordinary breakfast and snack moments, with product details and availability stated only when approved.",
+                "differentiation_hypotheses": ["simpler wording than fitness-style yogurt brands", "local and practical tone", "transparent status labels for what is confirmed versus exploratory"],
+                "what_the_brand_is_not": ["medical or diet brand", "gym-supplement brand", "luxury premium dessert brand", "instant delivery or subscription service"],
+                "safe_message_pillars": ["simple everyday use", "transparent product status", "manual review before orders", "claims only after approval"],
+                "unsupported_claims_to_avoid": forbidden_claims,
+            },
+            "validation_plan": {
+                "validation_goal": "Decide whether the first local website prototype should focus on one everyday-use segment and a small plain-yogurt-led offer.",
+                "highest_risk_assumptions": ["the primary segment is correct", "plain yogurt is a credible anchor offer", "visitors understand that ordering is not yet live", "trust copy can work without unsupported claims"],
+                "interview_or_feedback_target": "Small manually selected feedback group from the assumed primary segment; no outreach is performed by Phase 1.",
+                "recommended_validation_questions": [
+                    "When would you actually consider using this yogurt in a normal week?",
+                    "What would make the offer clear enough to remember?",
+                    "Which product facts would you need before trusting the brand?",
+                    "Which flavour or plain option would you want validated first?",
+                    "What wording feels honest versus exaggerated?",
+                    "Would a local interest form feel useful before ordering exists?",
+                    "What would make you decide this is not for you?",
+                ],
+                "positive_signals": ["users can explain the offer back in one sentence", "users pick one likely use moment", "users ask practical product questions instead of doubting the premise"],
+                "negative_signals": ["users expect health claims or nutrition proof before caring", "users cannot distinguish planned from available products", "users only respond to delivery or price promises that are not approved"],
+                "decision_rules": [
+                    "Keep the initial offer if the primary segment understands the plain-yogurt-led concept and asks for practical next facts.",
+                    "Narrow the segment if feedback differs strongly between families, students, and working adults.",
+                    "Change the offer if plain yogurt does not create interest without unsupported nutrition claims.",
+                    "Do not make public claims until product, pricing, operations, and compliance evidence is approved.",
+                ],
+                "what_to_change_if_validation_is_weak": ["narrow to a smaller use case", "remove flavours until plain offer is clear", "replace broad trust copy with more concrete owner-approved facts"],
+            },
+            "offer_pricing": {
+                "anchor_offer": "Plain thick Greek yogurt as the first validation anchor, with all product details subject to owner approval.",
+                "exploratory_variants": ["simple flavour options"],
+                "product_status_labels": [
+                    {"label": "Plain Greek yogurt", "status": "planned", "notes": "Owner supplied the idea, but product facts still need approval."},
+                    {"label": "Simple flavoured options", "status": "exploratory", "notes": "Mention only as possible variants until validated."},
+                ],
+                "customer_value_hypotheses": ["simple everyday option", "trustworthy local presentation", "clear manual inquiry path later"],
+                "pricing_inputs_required": ["production cost", "packaging cost", "approved product size", "delivery/collection method", "compliance and storage constraints"],
+                "pricing_validation_questions": ["What price information would you need before considering it?", "Would you compare it to snacks, breakfast items, or desserts?", "Would a trial quantity make sense before repeat purchase?"],
+                "trial_offer_framework": "A future trial offer may be described only as manually reviewed and only after product facts, costs, and claims are approved.",
+                "future_repeat_purchase_framework": "A repeat purchase path remains later-stage and depends on production, storage, delivery, and demand validation.",
+                "explicitly_unknown": ["final price", "pack size", "nutrition facts", "shelf life", "supplier", "delivery area", "availability date"],
+            },
+            "brand": {
+                "brand_principles": ["warm", "clean", "modern", "trustworthy", "simple", "local", "practical"],
+                "tone_of_voice": "Plainspoken, careful, friendly, and transparent about what is known versus still being validated.",
+                "say_examples": ["Simple Greek yogurt for everyday routines.", "Availability and product details are being validated.", "Future inquiries will be manually reviewed."],
+                "avoid_examples": ["High-protein health fix.", "Certified safest yogurt.", "Best price in Pakistan.", "Doctors recommend it.", "Order now for guaranteed delivery."],
+                "visual_hierarchy": ["clear offer headline", "short safe promise", "status labels", "product preview", "trust/FAQ", "manual inquiry"],
+                "photography_or_illustration_direction": "Use real approved product/process imagery later; Phase 1 creates no images or mockups.",
+                "trust_cues_allowed": ["owner-approved facts", "transparent unknowns", "manual review language", "clear product status labels"],
+                "trust_cues_not_allowed": ["fake reviews", "unverified certifications", "medical cues", "nutrition badges without evidence", "luxury-premium exaggeration"],
+                "design_anti_patterns": ["medical branding", "gym-supplement look", "fake testimonials", "overly luxury presentation", "claim-heavy hero"],
+            },
+            "website_spec": {
+                "homepage_objective": "Explain the business concept safely and prepare for a future local mock MVP without implying public launch readiness.",
+                "section_order": [contract["section_id"] for contract in section_contracts],
+                "section_contracts": section_contracts,
+                "placeholder_policy": "Unknown product, pricing, delivery, certification, nutrition, supplier, and availability facts must use labelled placeholders or be omitted.",
+                "safe_availability_wording": "Planning-stage concept; products, pricing, and availability are not yet final or public.",
+                "cta_wording_direction": "Use demo/prototype language such as Explore the prototype, Save sample interest (demo), or View availability status. Do not use real signup, order, payment, or delivery language.",
+                "faq_topics": ["product status", "pricing status", "claims policy", "availability", "manual inquiry behavior", "privacy placeholder"],
+                "system_must_never_invent": forbidden_claims,
+            },
+            "inquiry_flow": {
+                "inquiry_purpose": "Future local-only interest capture for prototype validation, not a real order or external message.",
+                "allowed_inquiry_types": ["general interest", "product question", "flavour preference"],
+                "fields": ["fictional sample name", "fictional sample area", "interest type", "sample message"],
+                "required_vs_optional_fields": ["required demo fields: interest type and sample message", "optional demo fields: fictional sample name and fictional sample area"],
+                "local_only_behavior": "Default Phase 2 scope is a local mock form with no external submission and no real contact-detail collection.",
+                "storage_behavior": "If implemented later, store fictional/sample local demo data only. Do not request or store real contact details.",
+                "success_state": "Demo saved locally. No order was placed, no real personal data was collected, and no external message was sent.",
+                "error_state": "Show local validation errors for missing required fields.",
+                "privacy_or_data_handling_placeholder": "Display demo-only wording that asks users to use fictional/sample values until a real privacy policy is approved.",
+                "non_goals": ["email", "WhatsApp", "CRM", "payment", "delivery", "analytics", "real order acceptance"],
+            },
+            "readiness": {
+                "local_build_readiness": {
+                    "status": "conditionally_ready",
+                    "ready_when": ["owner accepts placeholder policy", "Phase 2 local prototype is explicitly requested", "no public claims or integrations are requested"],
+                    "blockers": ["owner has not accepted the placeholder policy", "Phase 2 local prototype has not been explicitly requested", "public claims or integrations are being requested"],
+                    "approved_placeholder_policy": "Use labelled placeholders and status labels for unresolved product facts, pricing, and availability instead of treating them as local-build blockers.",
+                    "allowed_scope": ["local non-deployed landing page", "static content sections", "local mock interest form", "sample FAQ"],
+                    "exclusions": ["deployment", "payments", "real orders", "external messaging", "analytics", "public claims"],
+                },
+                "public_launch_readiness": {
+                    "status": "not_ready",
+                    "blockers": ["pricing unresolved", "product facts unresolved", "operations unresolved", "compliance/food-safety claims unapproved", "no external-action approvals"],
+                    "evidence_required": ["approved product facts", "pricing", "production and storage details", "delivery/collection policy", "compliance/legal review", "claim evidence"],
+                    "operational_requirements": ["supplier/production plan", "fulfillment process", "customer support process", "privacy/data handling", "refund/cancellation policy if applicable"],
+                    "external_action_approvals_required": ["deployment", "domain/hosting", "payments", "email/WhatsApp", "supplier/customer outreach", "ads/social posting", "analytics"],
+                },
+            },
+        }
+        return self._validate_business_builder_decisions(decisions, source="mock")
+
+    def _section_contract(
+        self,
+        section_id: str,
+        section_name: str,
+        purpose: str,
+        content_order: list[str],
+        safe_claims_allowed: list[str],
+        claims_or_content_forbidden: list[str],
+        primary_cta: str,
+        secondary_cta: str,
+        status_if_information_is_unknown: str,
+    ) -> dict[str, Any]:
+        return {
+            "section_id": section_id,
+            "section_name": section_name,
+            "purpose": purpose,
+            "content_order": content_order,
+            "required_copy_topics": content_order,
+            "safe_claims_allowed": safe_claims_allowed,
+            "claims_or_content_forbidden": claims_or_content_forbidden,
+            "primary_cta": primary_cta,
+            "secondary_cta": secondary_cta,
+            "status_if_information_is_unknown": status_if_information_is_unknown,
+        }
+
+    def _business_builder_bundle(
+        self,
+        *,
+        command: str,
+        intake: dict[str, str],
+        allow_web_search: bool,
+        memory_retrieved_count: int,
+        research_status: dict[str, Any] | None = None,
+        strategic_decisions: dict[str, Any] | None = None,
+        live_planner: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        strategic_decisions = strategic_decisions or self._mock_business_builder_decisions(intake)
+        customer = strategic_decisions["customer_wedge"]
+        positioning = strategic_decisions["positioning"]
+        validation = strategic_decisions["validation_plan"]
+        offer = strategic_decisions["offer_pricing"]
+        brand = strategic_decisions["brand"]
+        website = strategic_decisions["website_spec"]
+        inquiry = strategic_decisions["inquiry_flow"]
+        readiness = strategic_decisions["readiness"]
         facts = [f"Business idea: {intake['idea']}"]
         for label, key in (
             ("Business type", "business_type"),
@@ -2302,6 +2926,8 @@ class ExecutionEngine:
             "Approve or revise assumptions before Phase 2.",
             "Approve product claims, pricing, compliance, operations, and integrations before launch.",
         ]
+        approvals_needed = _dedupe_list([*approvals_needed, *readiness["public_launch_readiness"]["external_action_approvals_required"]])
+        assumptions = _dedupe_list([*assumptions, *validation["highest_risk_assumptions"]])
         deferred = [
             "Phase 2 website/app implementation",
             "Visual assets, logo, images, and screenshots",
@@ -2311,10 +2937,22 @@ class ExecutionEngine:
         research_status = research_status or {"enabled": bool(allow_web_search), "used": False, "source_count": 0}
         brief = {
             "schema_version": "1.0",
+            "planning_version": "1.1",
             "phase": 1,
             "status": "planning_complete_not_built",
             "intake": intake,
             "facts_from_user": facts,
+            "strategic_decisions_summary": {
+                "primary_launch_segment": customer["primary_launch_segment"],
+                "safe_customer_promise": positioning["safe_customer_promise"],
+                "anchor_offer": offer["anchor_offer"],
+                "local_build_readiness_status": readiness["local_build_readiness"]["status"],
+                "public_launch_readiness_status": readiness["public_launch_readiness"]["status"],
+            },
+            "primary_launch_segment": customer["primary_launch_segment"],
+            "secondary_segments": customer["secondary_segments"],
+            "local_build_readiness": readiness["local_build_readiness"],
+            "public_launch_readiness": readiness["public_launch_readiness"],
             "assumptions": assumptions,
             "research_status": research_status,
             "memory_status": {"retrieval_enabled": memory_retrieved_count > 0, "retrieved_count": memory_retrieved_count},
@@ -2323,30 +2961,56 @@ class ExecutionEngine:
             "approvals_needed": approvals_needed,
             "deferred_to_phase_2": deferred,
         }
+        if live_planner:
+            brief["live_planner"] = live_planner
         handoff = {
             "schema_version": "1.0",
+            "planning_version": "1.1",
             "phase": 1,
             "status": "planning_complete_not_built",
-            "business_summary": intake["idea"],
+            "business_summary": positioning["positioning_statement"],
+            "primary_customer": customer["primary_launch_segment"],
+            "secondary_customers": customer["secondary_segments"],
+            "positioning": positioning["positioning_statement"],
+            "safe_promise": positioning["safe_customer_promise"],
+            "offer_status": offer["product_status_labels"],
             "approved_assumptions": [],
-            "pages_or_screens": ["Home", "Products or services", "Trust / FAQ", "Contact or manually reviewed order request"],
-            "primary_user_flows": ["Visitor understands the offer", "Visitor reviews trust and FAQ content", "Visitor submits or prepares for a future manually reviewed inquiry"],
-            "content_requirements": ["Clear offer explanation", "Trust-building copy", "FAQ content", "Manual review language for any future inquiry flow"],
-            "visual_direction_summary": intake["style_preferences"] or "Clean, trustworthy, simple, and practical.",
+            "pages_or_screens": website["section_order"],
+            "page_or_section_contracts": website["section_contracts"],
+            "content_rules": {
+                "homepage_objective": website["homepage_objective"],
+                "placeholder_policy": website["placeholder_policy"],
+                "safe_availability_wording": website["safe_availability_wording"],
+                "cta_wording_direction": website["cta_wording_direction"],
+                "faq_topics": website["faq_topics"],
+                "system_must_never_invent": website["system_must_never_invent"],
+            },
+            "safe_and_forbidden_claims": {
+                "safe_message_pillars": positioning["safe_message_pillars"],
+                "unsupported_claims_to_avoid": positioning["unsupported_claims_to_avoid"],
+            },
+            "inquiry_flow": inquiry,
+            "local_build_readiness": readiness["local_build_readiness"],
+            "public_launch_readiness": readiness["public_launch_readiness"],
+            "primary_user_flows": ["Visitor understands the offer", "Visitor reviews trust and FAQ content", "Visitor explores demo-only sample interest behavior without submitting real personal data"],
+            "content_requirements": website["section_order"],
+            "visual_direction_summary": brand["tone_of_voice"],
             "feature_scope": {
-                "must_have": ["Business overview", "Offer explanation", "Trust and safety copy", "FAQ", "Future manual inquiry handoff"],
+                "must_have": readiness["local_build_readiness"]["allowed_future_phase_2_scope"],
                 "later": ["Ordering workflow", "Customer accounts", "Payments", "Delivery integrations", "Analytics"],
                 "out_of_scope": ["Payments", "Deployments", "External integrations", "Supplier/customer outreach", "Generated brand assets"],
             },
-            "data_entities": ["Product or service", "FAQ item", "Future inquiry request"],
+            "data_entities": ["Product or service", "FAQ item", "Demo inquiry sample"],
             "constraints": constraints,
             "forbidden_actions": forbidden_actions,
             "approval_required_before_phase_2": approvals_needed,
-            "phase_2_acceptance_criteria": ["Business owner approves assumptions.", "Claims and pricing are evidence-backed.", "Phase 2 scope is explicitly requested."],
+            "phase_2_acceptance_criteria": readiness["local_build_readiness"]["ready_when"],
             "deferred_to_phase_2": [*deferred, "Phase 2 has not started."],
+            "policy_boundary_notes": strategic_decisions.get("policy_boundary_notes", []),
         }
         state = {
             "schema_version": "1.0",
+            "planning_version": "1.1",
             "phase": 1,
             "phase_status": "planning_complete",
             "build_started": False,
@@ -2354,7 +3018,11 @@ class ExecutionEngine:
             "external_actions_taken": [],
             "external_actions_blocked": blocked_actions,
             "approvals_needed": approvals_needed,
+            "local_build_readiness": readiness["local_build_readiness"],
+            "public_launch_readiness": readiness["public_launch_readiness"],
+            "policy_boundary_notes": strategic_decisions.get("policy_boundary_notes", []),
             "artifact_names": [
+                "strategic_decisions.json",
                 "business_brief.json",
                 "business_brief.md",
                 "business_strategy.md",
@@ -2371,15 +3039,16 @@ class ExecutionEngine:
             "deferred_to_phase_2": deferred,
         }
         bundle: dict[str, Any] = {
+            "strategic_decisions.json": strategic_decisions,
             "business_brief.json": brief,
             "build_handoff.json": handoff,
             "business_builder_state.json": state,
         }
         bundle["business_brief.md"] = self._business_brief_markdown(brief)
-        bundle["business_strategy.md"] = self._business_strategy_markdown(intake, assumptions)
-        bundle["target_customer.md"] = self._target_customer_markdown(intake)
-        bundle["offer_and_pricing.md"] = self._offer_pricing_markdown(intake)
-        bundle["brand_direction.md"] = self._brand_direction_markdown(intake)
+        bundle["business_strategy.md"] = self._business_strategy_markdown(intake, assumptions, strategic_decisions)
+        bundle["target_customer.md"] = self._target_customer_markdown(intake, strategic_decisions)
+        bundle["offer_and_pricing.md"] = self._offer_pricing_markdown(intake, strategic_decisions)
+        bundle["brand_direction.md"] = self._brand_direction_markdown(intake, strategic_decisions)
         bundle["website_app_requirements.md"] = self._website_requirements_markdown(intake, handoff)
         bundle["mvp_scope.md"] = self._mvp_scope_markdown(handoff)
         bundle["final_planning_report.md"] = self._final_planning_report_markdown(intake, brief, handoff)
@@ -2387,6 +3056,46 @@ class ExecutionEngine:
 
     def _business_builder_qa(self, bundle: dict[str, Any]) -> str:
         names = bundle["business_builder_state.json"]["artifact_names"]
+        decisions = bundle.get("strategic_decisions.json", {})
+        customer = decisions.get("customer_wedge", {})
+        validation = decisions.get("validation_plan", {})
+        offer = decisions.get("offer_pricing", {})
+        handoff = bundle.get("build_handoff.json", {})
+        inquiry = handoff.get("inquiry_flow", {})
+        local = handoff.get("local_build_readiness", {})
+        public = handoff.get("public_launch_readiness", {})
+        policy_notes = handoff.get("policy_boundary_notes", [])
+        primary = str(customer.get("primary_launch_segment", "")).strip()
+        secondary = customer.get("secondary_segments", [])
+        research = bundle.get("business_brief.json", {}).get("research_status", {})
+        primary_is_assumption = "assumption" in primary.lower() or not research.get("used")
+        safe_promise = str(decisions.get("positioning", {}).get("safe_customer_promise") or "")
+        promise_lower = safe_promise.lower()
+        process_promise_terms = ("availability", "manual", "inquiry", "prototype", "process", "details")
+        product_outcome_terms = ("yogurt", "breakfast", "snack", "ordinary", "simple", "thick", "product", "experience")
+        process_hits = sum(1 for term in process_promise_terms if term in promise_lower)
+        product_hits = sum(1 for term in product_outcome_terms if term in promise_lower)
+        safe_promise_is_process_heavy = process_hits >= 2 and product_hits == 0
+        policy_lines = _business_builder_policy_qa_lines(handoff, offer, policy_notes)
+        qa_lines = [
+            (
+                "WARN" if primary and primary_is_assumption else "PASS" if primary else "BLOCKED",
+                "Primary launch segment is a planning assumption pending validation; it is sufficiently narrow for a local prototype, not proven market evidence." if primary and primary_is_assumption else "primary customer is specific enough" if primary else "primary launch segment is missing",
+            ),
+            ("PASS" if isinstance(secondary, list) else "WARN", "secondary audiences are separate" if isinstance(secondary, list) else "secondary audiences are not clearly separated"),
+            (
+                "WARN" if safe_promise and safe_promise_is_process_heavy else "PASS" if safe_promise else "WARN",
+                "safe promise is partly about prototype/process limits; confirm the product/customer outcome before treating it as a validated value proposition" if safe_promise and safe_promise_is_process_heavy else "value proposition is customer-focused and has a safe promise" if safe_promise else "safe promise is missing",
+            ),
+            ("PASS" if decisions.get("positioning", {}).get("unsupported_claims_to_avoid") else "BLOCKED", "unsupported claims are explicitly avoided"),
+            ("PASS" if offer.get("product_status_labels") else "WARN", "offer status is clear"),
+            ("PASS" if len(validation.get("recommended_validation_questions", [])) >= 5 and len(validation.get("positive_signals", [])) >= 3 and len(validation.get("negative_signals", [])) >= 3 else "WARN", "validation plan has questions, signals, and decision rules"),
+            ("PASS" if handoff.get("page_or_section_contracts") else "WARN", "website handoff is buildable"),
+            ("PASS" if inquiry.get("local_only_behavior") else "WARN", "inquiry behavior is defined"),
+            ("PASS" if local and public and local.get("status") != public.get("status") else "WARN", "local build readiness is separate from public launch readiness"),
+            ("PASS", "Phase 2 has not started"),
+            ("PASS", "external action has not occurred"),
+        ]
         return f"""# Planning QA
 
 - PASS: All required Phase 1 artifacts are specified: {", ".join(names)}.
@@ -2398,6 +3107,12 @@ class ExecutionEngine:
 - PASS: No external action occurred.
 - PASS: Build handoff is present for later controlled implementation.
 - WARN: Missing user decisions and approvals must be reviewed before Phase 2.
+
+## Policy QA
+{chr(10).join(f"- {status}: {message}." for status, message in policy_lines)}
+
+## Semantic QA
+{chr(10).join(f"- {status}: {message}." for status, message in qa_lines)}
 """
 
     def _split_business_lines(self, value: str) -> list[str]:
@@ -2411,6 +3126,13 @@ class ExecutionEngine:
 
 Phase: {brief["phase"]}
 Status: {brief["status"]}
+Planning version: {brief.get("planning_version", "1.0")}
+
+## Strategic Summary
+- Primary launch segment: {brief.get("primary_launch_segment", "Not available for this earlier run")}
+- Secondary/later segments: {", ".join(brief.get("secondary_segments", [])) or "None listed"}
+- Local prototype readiness: {brief.get("local_build_readiness", {}).get("status", "Not available")}
+- Public launch readiness: {brief.get("public_launch_readiness", {}).get("status", "Not available")}
 
 ## Facts From User
 {self._markdown_list(brief["facts_from_user"])}
@@ -2439,56 +3161,84 @@ Status: {brief["status"]}
 {self._markdown_list(brief["deferred_to_phase_2"])}
 """
 
-    def _business_strategy_markdown(self, intake: dict[str, str], assumptions: list[str]) -> str:
+    def _business_strategy_markdown(self, intake: dict[str, str], assumptions: list[str], decision: dict[str, Any] | None = None) -> str:
+        decisions = decision or self._mock_business_builder_decisions(intake)
+        customer = decisions["customer_wedge"]
+        positioning = decisions["positioning"]
+        validation = decisions["validation_plan"]
         return f"""# Business Strategy
 
-## Problem to solve
-Help the target customer understand and evaluate: {intake["idea"]}
+## Primary Launch Wedge
+{customer["primary_launch_segment"]}
 
-## Business concept
-{intake["product_or_service_details"] or intake["idea"]}
+## Customer Job
+{customer["main_customer_job"]}
 
 ## Value proposition
-Assumption: a clear, trustworthy, small MVP can explain the offer and prepare for manually reviewed demand.
+{positioning["positioning_statement"]}
 
-## Positioning
-{intake["style_preferences"] or "Assumption: practical, trustworthy, and easy to understand."}
+## Safe Promise
+{positioning["safe_customer_promise"]}
 
-## Early validation approach
-- Interview target customers before launch.
-- Validate pricing and claims before publishing.
-- Keep all order or inquiry flows manually reviewed.
+## Differentiation hypotheses
+{self._markdown_list(positioning["differentiation_hypotheses"])}
 
-## Key risks
+## What is deliberately not claimed
+{self._markdown_list([*positioning["what_the_brand_is_not"], *positioning["unsupported_claims_to_avoid"]])}
+
+## Validation plan
+Goal: {validation["validation_goal"]}
+
+Target: {validation["interview_or_feedback_target"]}
+
+### Questions
+{self._markdown_list(validation["recommended_validation_questions"])}
+
+### Positive signals
+{self._markdown_list(validation["positive_signals"])}
+
+### Negative signals
+{self._markdown_list(validation["negative_signals"])}
+
+### Decision rules
+{self._markdown_list(validation["decision_rules"])}
+
+### Change if validation is weak
+{self._markdown_list(validation["what_to_change_if_validation_is_weak"])}
+
+## Key assumptions and risks
 {self._markdown_list(assumptions)}
-
-## Success signals
-- Users understand the offer.
-- Users know what is and is not available yet.
-- The owner can approve a narrow Phase 2 build scope.
 """
 
-    def _target_customer_markdown(self, intake: dict[str, str]) -> str:
-        customer = intake["target_customer"] or "Assumption: primary customer is not fully specified yet."
+    def _target_customer_markdown(self, intake: dict[str, str], decision: dict[str, Any] | None = None) -> str:
+        decisions = decision or self._mock_business_builder_decisions(intake)
+        customer = decisions["customer_wedge"]
+        validation = decisions["validation_plan"]
         return f"""# Target Customer
 
-## Primary customer
-{customer}
+## Primary launch segment
+{customer["primary_launch_segment"]}
 
-## Customer needs
-- Assumption: clear explanation of the offer.
-- Assumption: trust signals before taking action.
+## Secondary/later segments
+{self._markdown_list(customer["secondary_segments"])}
 
-## Customer pain points
-- Unclear product details.
-- Unverified claims or pricing.
+## Why this segment first
+{customer["why_primary_segment_first"]}
 
-## Buying triggers
-- Clear fit for everyday use.
-- Trustworthy, simple presentation.
+## Use case
+{customer["primary_use_case"]}
 
-## Likely objections
-- Price, availability, product claims, and reliability need validation.
+## Pain / need
+{customer["main_customer_job"]}
+
+## Buying trigger
+Clear fit for an everyday routine, with enough approved facts to trust the next step.
+
+## Main objections
+{self._markdown_list(customer["main_objections"])}
+
+## Customer validation needed
+{self._markdown_list(customer["customer_validation_needed"])}
 
 ## Customer journey assumptions
 - Discover the business.
@@ -2497,104 +3247,174 @@ Assumption: a clear, trustworthy, small MVP can explain the offer and prepare fo
 - Use a future manually reviewed inquiry flow.
 
 ## Validation questions
-- Who is the strongest first customer segment?
-- What evidence is needed for claims?
-- What price range is acceptable?
+{self._markdown_list(validation["recommended_validation_questions"])}
 """
 
-    def _offer_pricing_markdown(self, intake: dict[str, str]) -> str:
-        budget = intake["budget"] or "Not supplied; no final budget or price is assumed."
+    def _offer_pricing_markdown(self, intake: dict[str, str], decision: dict[str, Any] | None = None) -> str:
+        decisions = decision or self._mock_business_builder_decisions(intake)
+        offer = decisions["offer_pricing"]
         return f"""# Offer And Pricing
 
-## Core offer
-{intake["product_or_service_details"] or intake["idea"]}
+## Anchor offer
+{offer["anchor_offer"]}
 
-## Possible offer tiers or packages
-- Starter or single-item offer.
-- Bundle or recurring option later, only after validation.
+## Exploratory options
+{self._markdown_list(offer["exploratory_variants"])}
 
-## Pricing framework
-Pricing is a framework until validated. Budget input: {budget}
+## Confirmed / planned / exploratory status
+{self._product_status_markdown(offer["product_status_labels"])}
 
-## Pricing assumptions
-- Assumption: final prices require evidence, cost inputs, and human approval.
+## Customer value hypotheses
+{self._markdown_list(offer["customer_value_hypotheses"])}
 
-## What needs validation before final prices
-- Costs, demand, compliance, delivery, and competitive context.
+## Pricing inputs required
+{self._markdown_list(offer["pricing_inputs_required"])}
 
-## Optional launch offer ideas
-- Manually reviewed introductory offer after claims and operations are approved.
+## Pricing validation questions
+{self._markdown_list(offer["pricing_validation_questions"])}
+
+## Trial-offer framework
+{offer["trial_offer_framework"]}
+
+## Future repeat-purchase framework
+{offer["future_repeat_purchase_framework"]}
+
+## Explicit unknowns
+{self._markdown_list(offer["explicitly_unknown"])}
 """
 
-    def _brand_direction_markdown(self, intake: dict[str, str]) -> str:
-        style = intake["style_preferences"] or "Simple, trustworthy, and clear."
+    def _brand_direction_markdown(self, intake: dict[str, str], decision: dict[str, Any] | None = None) -> str:
+        decisions = decision or self._mock_business_builder_decisions(intake)
+        brand = decisions["brand"]
         return f"""# Brand Direction
 
-## Brand personality
-{style}
+## Brand principles
+{self._markdown_list(brand["brand_principles"])}
 
 ## Tone of voice
-Clear, grounded, careful, and non-hype.
+{brand["tone_of_voice"]}
+
+## Say examples
+{self._markdown_list(brand["say_examples"])}
+
+## Avoid examples
+{self._markdown_list(brand["avoid_examples"])}
 
 ## Visual direction
-Planning only: clean layout, strong readability, and trust-building details.
-
-## Suggested colour mood
-Warm, clean, natural, and restrained.
-
-## Typography mood
-Readable, modern, and practical.
+{self._markdown_list(brand["visual_hierarchy"])}
 
 ## Photography/illustration direction
-Use real approved product or process imagery later. No images are generated in Phase 1.
+{brand["photography_or_illustration_direction"]}
 
-## What to avoid
-- Unsupported health, medical, nutritional, legal, or guaranteed business claims.
-- Generated logos or brand assets in Phase 1.
+## Trust cues allowed
+{self._markdown_list(brand["trust_cues_allowed"])}
+
+## Trust cues not allowed
+{self._markdown_list(brand["trust_cues_not_allowed"])}
+
+## Design anti-patterns
+{self._markdown_list(brand["design_anti_patterns"])}
 """
 
     def _website_requirements_markdown(self, intake: dict[str, str], handoff: dict[str, Any]) -> str:
+        local = handoff.get("local_build_readiness", {})
+        public = handoff.get("public_launch_readiness", {})
         return f"""# Website App Requirements
 
-## Business goal for the future website/app
-{intake["primary_goal"] or "Explain the business and prepare a controlled Phase 2 MVP."}
+## Homepage objective
+{handoff.get("content_rules", {}).get("homepage_objective") or intake["primary_goal"] or "Explain the business and prepare a controlled Phase 2 MVP."}
 
-## Target users
-{intake["target_customer"] or "Assumption: target users need validation."}
+## Primary customer
+{handoff.get("primary_customer", "Not available for this earlier run")}
 
-## Required pages or screens
-{self._markdown_list(handoff["pages_or_screens"])}
+## Secondary customers
+{self._markdown_list(handoff.get("secondary_customers", []))}
 
-## Required features
-{self._markdown_list(self._split_business_lines(intake["required_features"]) or handoff["feature_scope"]["must_have"])}
+## Section order
+{self._markdown_list(handoff.get("pages_or_screens", []))}
+
+## Page / section contracts
+{self._section_contracts_markdown(handoff.get("page_or_section_contracts", []))}
 
 ## Primary user flows
 {self._markdown_list(handoff["primary_user_flows"])}
 
-## Content requirements
-{self._markdown_list(handoff["content_requirements"])}
+## Placeholder policy
+{handoff.get("content_rules", {}).get("placeholder_policy", "Use labelled placeholders for unknown facts.")}
+
+## Safe availability wording
+{handoff.get("content_rules", {}).get("safe_availability_wording", "Availability must remain explicitly unconfirmed until approved.")}
+
+## CTA wording direction
+{handoff.get("content_rules", {}).get("cta_wording_direction", "Use interest/learn language, not order/pay language.")}
+
+## FAQ topics
+{self._markdown_list(handoff.get("content_rules", {}).get("faq_topics", []))}
+
+## Local demo inquiry flow
+{self._inquiry_flow_markdown(handoff.get("inquiry_flow", {}))}
 
 ## Trust and safety requirements
 - Claims, pricing, delivery, compliance, and operations need approval or evidence before launch.
+
+## What the system must never invent
+{self._markdown_list(handoff.get("content_rules", {}).get("system_must_never_invent", []))}
 
 ## Out-of-scope features
 {self._markdown_list(handoff["feature_scope"]["out_of_scope"])}
 
 ## Approval-required integrations
 - Payments, messaging, delivery, analytics, account systems, and any external API.
+
+## Local prototype readiness
+- Status: {local.get("status", "unknown")}
+- Mode: {local.get("prototype_mode", "local_demo_only")}
+- Personal data: {local.get("personal_data", "not_collected")}
+- Allowed scope: {", ".join(local.get("allowed_future_phase_2_scope", []))}
+- Exclusions: {", ".join(local.get("exclusions", []))}
+
+## Public launch readiness
+- Status: {public.get("status", "not_ready")}
+- Blockers: {", ".join(public.get("blockers", []))}
 """
 
     def _mvp_scope_markdown(self, handoff: dict[str, Any]) -> str:
+        local = handoff.get("local_build_readiness", {})
+        public = handoff.get("public_launch_readiness", {})
         return f"""# MVP Scope
 
-## Must have
-{self._markdown_list(handoff["feature_scope"]["must_have"])}
+## Local prototype scope
+{self._markdown_list(local.get("allowed_future_phase_2_scope", handoff["feature_scope"]["must_have"]))}
+
+## Local prototype readiness
+- Status: {local.get("status", "unknown")}
+- Ready when:
+{self._markdown_list(local.get("ready_when", []))}
+- Blockers:
+{self._markdown_list(local.get("local_build_blockers", []))}
+- Open content assumptions:
+{self._markdown_list(local.get("open_content_assumptions", []))}
+- Placeholder policy: {local.get("approved_placeholder_policy", "Use labelled placeholders for unresolved facts.")}
 
 ## Should have later
 {self._markdown_list(handoff["feature_scope"]["later"])}
 
-## Explicitly out of scope
-{self._markdown_list(handoff["feature_scope"]["out_of_scope"])}
+## Explicit local prototype exclusions
+{self._markdown_list(local.get("exclusions", handoff["feature_scope"]["out_of_scope"]))}
+
+## Public-launch scope
+Public launch is separate from local prototype creation and remains not ready.
+
+## Public launch readiness
+- Status: {public.get("status", "not_ready")}
+- Blockers:
+{self._markdown_list(public.get("blockers", []))}
+- Evidence required:
+{self._markdown_list(public.get("evidence_required", []))}
+- Operational requirements:
+{self._markdown_list(public.get("operational_requirements", []))}
+- External approvals required:
+{self._markdown_list(public.get("external_action_approvals_required", []))}
 
 ## Risks and dependencies
 - User must approve assumptions.
@@ -2606,19 +3426,23 @@ Use real approved product or process imagery later. No images are generated in P
 """
 
     def _final_planning_report_markdown(self, intake: dict[str, str], brief: dict[str, Any], handoff: dict[str, Any]) -> str:
+        local = brief.get("local_build_readiness", {})
+        public = brief.get("public_launch_readiness", {})
         return f"""# Final Planning Report
 
 This is a Phase 1 planning package.
 No website, app, deployment, external integration, social post, ad campaign, payment flow, or external action has been created.
 
+Planning version: {brief.get("planning_version", "1.0")}
+
 ## Business concept
 {intake["idea"]}
 
-## Core customer
-{intake["target_customer"] or "Assumption: core customer must be validated."}
+## Primary launch segment
+{brief.get("primary_launch_segment", "Not available for this earlier run")}
 
-## Offer summary
-{intake["product_or_service_details"] or intake["idea"]}
+## Safe promise
+{handoff.get("safe_promise", "Not available for this earlier run")}
 
 ## Pricing status
 No final pricing is set unless supplied and approved by the user. Pricing remains a validation item.
@@ -2638,11 +3462,65 @@ No final pricing is set unless supplied and approved by the user. Pricing remain
 ## What is intentionally not built
 {self._markdown_list(brief["deferred_to_phase_2"])}
 
-## What is ready for Phase 2 review
+## Local Phase 2 prototype readiness
+- Status: {local.get("status", "unknown")}
+- Allowed local scope:
+{self._markdown_list(local.get("allowed_future_phase_2_scope", []))}
+- Blockers:
+{self._markdown_list(local.get("local_build_blockers", []))}
+- Open content assumptions:
+{self._markdown_list(local.get("open_content_assumptions", []))}
+
+## Public launch readiness
+- Status: {public.get("status", "not_ready")}
+- Blockers:
+{self._markdown_list(public.get("blockers", []))}
+
+## What is ready for review
+- A structured strategic decision record exists.
 - A compact build handoff exists.
 - Assumptions and unresolved approvals are visible.
+- Local prototype readiness is separated from public launch readiness.
 - Phase 2 has not started.
 """
+
+    def _product_status_markdown(self, items: list[dict[str, Any]]) -> str:
+        if not items:
+            return "- None supplied."
+        return "\n".join(f"- {item.get('label', 'Item')}: {item.get('status', 'exploratory')} - {item.get('notes', '')}" for item in items)
+
+    def _section_contracts_markdown(self, contracts: list[dict[str, Any]]) -> str:
+        if not contracts:
+            return "- Not available for this earlier run."
+        blocks = []
+        for contract in contracts:
+            blocks.append(
+                f"### {contract.get('section_name', contract.get('section_id', 'Section'))}\n"
+                f"- Section ID: {contract.get('section_id', '')}\n"
+                f"- Purpose: {contract.get('purpose', '')}\n"
+                f"- Content order:\n{self._markdown_list(contract.get('content_order', []))}\n"
+                f"- Required copy topics:\n{self._markdown_list(contract.get('required_copy_topics', []))}\n"
+                f"- Safe claims allowed:\n{self._markdown_list(contract.get('safe_claims_allowed', []))}\n"
+                f"- Claims/content forbidden:\n{self._markdown_list(contract.get('claims_or_content_forbidden', []))}\n"
+                f"- Primary CTA: {contract.get('primary_cta', '')}\n"
+                f"- Secondary CTA: {contract.get('secondary_cta', '')}\n"
+                f"- If information is unknown: {contract.get('status_if_information_is_unknown', '')}"
+            )
+        return "\n\n".join(blocks)
+
+    def _inquiry_flow_markdown(self, flow: dict[str, Any]) -> str:
+        if not flow:
+            return "- Not available for this earlier run."
+        return f"""- Purpose: {flow.get("inquiry_purpose", "")}
+- Allowed inquiry types: {", ".join(flow.get("allowed_inquiry_types", []))}
+- Fields: {", ".join(flow.get("fields", []))}
+- Required vs optional: {", ".join(flow.get("required_vs_optional_fields", []))}
+- Local-only behavior: {flow.get("local_only_behavior", "")}
+- Storage behavior: {flow.get("storage_behavior", "")}
+- Success state: {flow.get("success_state", "")}
+- Error state: {flow.get("error_state", "")}
+- Privacy/data placeholder: {flow.get("privacy_or_data_handling_placeholder", "")}
+- Non-goals: {", ".join(flow.get("non_goals", []))}"""
 
     def _markdown_list(self, items: list[str]) -> str:
         return "\n".join(f"- {item}" for item in items) if items else "- None supplied."
@@ -3870,3 +4748,157 @@ Approved for local review only. Human approval is still required before public u
                 """,
                 (record.run_id, record.command, record.status, record.started_at.isoformat(), record.model_dump_json()),
             )
+
+
+def _dedupe_list(values: list[str]) -> list[str]:
+    seen = set()
+    result = []
+    for value in values:
+        normalized = str(value).strip()
+        if not normalized:
+            continue
+        key = normalized.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(normalized)
+    return result
+
+
+def _clean_list(values: Any, *, limit: int = 10) -> list[str]:
+    if not isinstance(values, list):
+        return []
+    return _dedupe_list([str(value).strip() for value in values if str(value).strip()])[:limit]
+
+
+def _canonical_business_builder_local_readiness() -> dict[str, Any]:
+    return {
+        "status": "conditionally_ready",
+        "policy_source": "system_deterministic",
+        "prototype_mode": "local_demo_only",
+        "personal_data": "not_collected",
+        "ready_when": [
+            "owner accepts placeholder policy",
+            "Phase 2 local prototype is explicitly requested",
+            "no public claims or integrations are requested",
+        ],
+        "local_build_blockers": [
+            "owner has not accepted placeholder policy",
+            "Phase 2 local prototype has not been explicitly requested",
+            "a requested feature would introduce public claims or external integration",
+        ],
+        "open_content_assumptions": [
+            "product facts remain pending verification",
+            "pricing remains unresolved",
+            "availability remains unresolved",
+        ],
+        "allowed_future_phase_2_scope": [
+            "local non-deployed landing page",
+            "static content sections",
+            "local demo-only inquiry form",
+            "sample FAQ",
+        ],
+        "exclusions": [
+            "deployment",
+            "payments",
+            "real orders",
+            "external messaging",
+            "analytics",
+            "public claims",
+        ],
+        "approved_placeholder_policy": "Use labelled placeholders and status labels for unresolved product facts, pricing, and availability.",
+    }
+
+
+def _canonical_business_builder_inquiry_flow() -> dict[str, Any]:
+    return {
+        "mode": "local_demo_only",
+        "policy_source": "system_deterministic",
+        "inquiry_purpose": "Future local prototype demo input only; not a real inquiry, order, or external message.",
+        "allowed_inquiry_types": ["sample interest", "use-case preference", "plain/flavour preference"],
+        "fields": ["interest type", "use-case preference", "plain/flavour preference", "optional fictional sample note"],
+        "required_vs_optional_fields": ["required demo fields: interest type", "optional demo fields: use-case preference, plain/flavour preference, fictional sample note"],
+        "local_only_behavior": "Local demo only. No real personal data. No external submission, email, WhatsApp, CRM, manual-review queue, real order, or payment.",
+        "storage_behavior": "If implemented later, store fictional/sample local demo data only. Do not request or store real contact details.",
+        "success_state": "Demo saved locally. No order was placed, no real personal data was collected, and no external message was sent.",
+        "error_state": "Show local validation errors for missing demo-only fields.",
+        "privacy_or_data_handling_placeholder": "Demo-only wording: use fictional/sample values. No real personal data is collected.",
+        "non_goals": ["name", "nickname", "city", "area", "address", "email", "phone", "real consent collection", "WhatsApp", "CRM", "payment", "delivery", "analytics", "real order acceptance", "manual-review queue"],
+    }
+
+
+def _canonical_business_builder_cta_wording() -> str:
+    return "Use demo/prototype language such as Explore the prototype, Save sample interest (demo), or View availability status. Avoid real commerce or external-contact wording."
+
+
+def _contains_business_builder_capability(value: str) -> bool:
+    lowered = value.lower()
+    capability_terms = ("online ordering", "delivery", "subscription", "recurring", "checkout", "payment", "customer account", "messaging", "whatsapp", "email", "crm", "manual review queue")
+    return any(term in lowered for term in capability_terms)
+
+
+def _contains_real_cta(value: str) -> bool:
+    lowered = value.lower()
+    real_cta_terms = ("sign up", "order now", "place order", "checkout", "pay now", "payment", "delivery", "email us", "whatsapp", "contact us", "submit inquiry")
+    return any(term in lowered for term in real_cta_terms)
+
+
+def _contains_business_builder_personal_data_field(value: str) -> bool:
+    personal_terms = ("name", "nickname", "city", "area", "address", "email", "phone", "contact", "consent")
+    return any(term in value.lower() for term in personal_terms)
+
+
+def _contains_real_inquiry_claim(value: str) -> bool:
+    lowered = value.lower()
+    if "external submission" in lowered and "no external submission" not in lowered:
+        return True
+    if ("manual review" in lowered or "manual-review" in lowered or "review queue" in lowered) and "no manual-review queue" not in lowered and "no manual review" not in lowered:
+        return True
+    positive_terms = ("real inquiry", "customer record", "order request", "send email", "send whatsapp", "submit to crm")
+    return any(term in lowered for term in positive_terms)
+
+
+def _contains_local_blocker_misclassification(values: Any) -> bool:
+    text = json.dumps(values).lower()
+    terms = ("pricing", "product facts", "availability", "compliance", "privacy approval", "public privacy")
+    return any(term in text for term in terms)
+
+
+def _business_builder_policy_qa_lines(handoff: dict[str, Any], offer: dict[str, Any], policy_notes: Any) -> list[tuple[str, str]]:
+    local = handoff.get("local_build_readiness", {})
+    inquiry = handoff.get("inquiry_flow", {})
+    content_rules = handoff.get("content_rules", {})
+    product_labels = offer.get("product_status_labels", [])
+    product_text = json.dumps(product_labels).lower()
+    inquiry_fields_text = json.dumps([*inquiry.get("fields", []), *inquiry.get("required_vs_optional_fields", [])]).lower()
+    inquiry_behavior_text = " ".join(
+        str(inquiry.get(key, ""))
+        for key in ("inquiry_purpose", "local_only_behavior", "storage_behavior", "success_state", "privacy_or_data_handling_placeholder")
+    ).lower()
+    local_blockers = local.get("local_build_blockers", [])
+    cta_text = str(content_rules.get("cta_wording_direction", "")).lower()
+    real_cta_terms = ("sign up", "order now", "place order", "checkout", "pay now", "payment", "delivery", "email us", "whatsapp", "contact us", "submit inquiry")
+    notes = policy_notes if isinstance(policy_notes, list) else []
+    lines: list[tuple[str, str]] = []
+    lines.append(("WARN", "system policy narrowed conflicting live planner policy suggestions") if notes else ("PASS", "no planner policy conflict required narrowing"))
+    lines.append(("PASS" if local.get("status") == "conditionally_ready" and local.get("policy_source") == "system_deterministic" else "BLOCKED", "local readiness uses deterministic system policy"))
+    lines.append(("PASS" if local.get("prototype_mode") == "local_demo_only" and local.get("personal_data") == "not_collected" else "BLOCKED", "local prototype is demo-only and does not collect personal data"))
+    lines.append(("BLOCKED" if _contains_business_builder_personal_data_field(inquiry_fields_text) else "PASS", "local-demo inquiry excludes real personal-data fields"))
+    lines.append(("BLOCKED" if _contains_real_inquiry_claim(inquiry_behavior_text) else "PASS", "local-demo inquiry excludes real submission/manual-review behavior"))
+    lines.append(("BLOCKED" if _contains_business_builder_capability(product_text) else "PASS", "product status labels contain products only"))
+    lines.append(("BLOCKED" if _contains_local_blocker_misclassification(local_blockers) else "PASS", "open product facts, pricing, and availability are assumptions, not local-build blockers"))
+    lines.append(("PASS" if "local non-deployed landing page" in local.get("allowed_future_phase_2_scope", []) else "BLOCKED", "future local website prototype remains allowed after explicit Phase 2 request"))
+    lines.append(("BLOCKED" if any(term in cta_text for term in real_cta_terms) else "PASS", "CTA direction does not imply real signup, ordering, payment, delivery, or external contact"))
+    return lines
+
+
+def _clean_decision_value(value: Any) -> Any:
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, dict):
+        return {key: _clean_decision_value(item) for key, item in value.items()}
+    if isinstance(value, list):
+        if any(isinstance(item, dict) for item in value):
+            return [_clean_decision_value(item) for item in value if isinstance(item, dict)]
+        return _clean_list(value, limit=12)
+    return value

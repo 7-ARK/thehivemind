@@ -23,7 +23,7 @@ export default function BudgetHealthCard({ budget }: BudgetHealthCardProps) {
   } else if (status === "danger" || status === "exceeded" || percentUsed > 85) {
     barColorClass = "bg-rose-500";
     textColorClass = "text-rose-400 border-rose-500/20 bg-rose-500/5";
-    descriptionText = "Immediate budget constraints. Conserve expensive Flex endpoints.";
+    descriptionText = "Immediate budget constraints. Conserve expensive endpoints.";
     Icon = AlertTriangle;
   }
 

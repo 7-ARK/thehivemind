@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     openrouter_management_key: str = ""
 
     ceo_model: str = "gpt-5.5"
-    ceo_service_tier: str = "flex"
+    ceo_service_tier: str = ""
     ceo_fallback_model: str = "gpt-5.4-nano"
     ceo_fallback_provider: str = "openai"
     model_selector_model: str = "gemini-3.5-flash"
@@ -41,6 +41,7 @@ class Settings(BaseSettings):
     real_coding_max_input_files: int = 12
     real_coding_max_output_files: int = 8
     real_coding_max_output_tokens: int = 3000
+    business_builder_live_max_output_tokens: int = 10000
     real_coding_max_patch_bytes: int = 50000
     real_coding_max_repair_attempts: int = 0
     real_coding_require_diff: bool = True
