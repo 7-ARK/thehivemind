@@ -1,6 +1,7 @@
 import hashlib
 import html
 import json
+import re
 import sqlite3
 import uuid
 from datetime import UTC, datetime
@@ -2566,13 +2567,13 @@ Open `index.html` locally or through the controlled TheHiveMind preview endpoint
 
     def _render_phase2a_index_html(self, spec: dict[str, Any], policy: dict[str, Any]) -> str:
         title = html.escape(str(spec["title"]))
-        promise = html.escape(str(spec["safe_customer_promise"]))
-        segment = html.escape(str(spec["primary_launch_segment"]))
-        use_case = html.escape(str(spec["primary_use_case"]))
-        availability = html.escape(str(spec["availability_wording"]))
+        promise = html.escape(_phase2a_sentence_text(spec["safe_customer_promise"]))
+        segment = html.escape(_phase2a_sentence_text(spec["primary_launch_segment"]))
+        use_case = html.escape(_phase2a_sentence_text(spec["primary_use_case"]))
+        availability = html.escape(_phase2a_sentence_text(spec["availability_wording"]))
         constraints = [html.escape(str(item)) for item in spec["copy_constraints"]]
         products = "\n".join(
-            f'<article class="card"><span>{html.escape(str(item.get("status", "planned")))}</span><h3>{html.escape(str(item.get("label", "")))}</h3><p>{html.escape(str(item.get("notes", "Details pending approval.")))}</p></article>'
+            f'<article class="card"><span>{html.escape(str(item.get("status", "planned")))}</span><h3>{html.escape(str(item.get("label", "")))}</h3><p>{html.escape(_phase2a_sentence_text(item.get("notes", "Details pending approval.")))}</p></article>'
             for item in spec["approved_product_statuses"]
         )
         faq_items = "\n".join(
@@ -2649,7 +2650,7 @@ Open `index.html` locally or through the controlled TheHiveMind preview endpoint
     </section>
     <section id="product-concept">
       <h2>Product concept</h2>
-      <p>A warm, practical yogurt concept for {segment}. The first use case is {use_case}.</p>
+      <p>A warm, practical yogurt concept for {segment} The first use case is {use_case}</p>
     </section>
     <section id="everyday-use">
       <h2>Everyday use moments</h2>
@@ -5574,6 +5575,21 @@ def _phase2a_safe_availability_wording(value: Any) -> str:
     if any(phrase in lowered for phrase in unsafe_phrases):
         return default
     return text
+
+
+def _phase2a_sentence_text(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    text = re.sub(r"\s+([.!?:,;])", r"\1", text)
+    text = re.sub(r"\.{2,}", ".", text)
+    text = re.sub(r"\.\s+\.", ".", text)
+    text = text.strip()
+    if not text:
+        return ""
+    if text.endswith((".", "?", "!", ":")):
+        return text
+    return f"{text}."
 
 
 def _contains_business_builder_capability(value: str) -> bool:

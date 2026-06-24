@@ -129,6 +129,14 @@ def _mutate_saved_run(run_id: str, mutate) -> None:
         conn.execute("UPDATE runs SET status = ?, payload = ? WHERE run_id = ?", (payload["status"], json.dumps(payload), run_id))
 
 
+def _mutate_run_artifact(run: dict, name: str, mutate) -> None:
+    artifact = next(item for item in run["artifacts"] if item["name"] == name)
+    path = Path(artifact["path"])
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    mutate(payload)
+    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
 def test_business_builder_strict_response_schema_requires_every_property():
     response_format = ExecutionEngine(get_settings())._business_builder_decision_response_format()
     schema = response_format["json_schema"]["schema"]
@@ -694,6 +702,34 @@ def test_business_builder_phase2a_filters_unsafe_source_availability_wording():
     assert "ask a question" not in html_text
     assert "inquiries will be reviewed" not in html_text
     assert "save sample interest (demo)" in html_text
+
+
+def test_business_builder_phase2a_normalizes_source_sentence_punctuation_through_api(client):
+    source = _phase1_run(client, "business-builder-phase2a-punctuation")
+    _mutate_run_artifact(
+        source,
+        "strategic_decisions.json",
+        lambda payload: (
+            payload["customer_wedge"].update(
+                {
+                    "primary_launch_segment": "people who want a simple everyday yogurt option.",
+                    "primary_use_case": "home meals..",
+                }
+            ),
+            payload["positioning"].update({"safe_customer_promise": "A simple yogurt concept for breakfast..."}),
+            payload["offer_pricing"]["product_status_labels"][0].update({"notes": "Suitable for ordinary home meals.."}),
+        ),
+    )
+    response = client.post("/api/runs", json=_phase2a_payload(source["run_id"], "business-builder-phase2a-punctuation"))
+    assert response.status_code == 200
+    run = response.json()
+    html_text = ProjectWorkspaceManager().read_project_file("business-builder-phase2a-punctuation", f"prototypes/{run['run_id']}/index.html")
+    assert "option.. The first use case is" not in html_text
+    assert "home meals.." not in html_text
+    assert "breakfast..." not in html_text
+    assert "option. The first use case is home meals." in html_text
+    assert "A simple yogurt concept for breakfast." in html_text
+    assert "Suitable for ordinary home meals." in html_text
 
 
 def test_business_builder_live_missing_approval_returns_approval_required(client):
